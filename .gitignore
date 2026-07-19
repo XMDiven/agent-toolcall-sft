@@ -1,0 +1,42 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE and OS metadata
+.DS_Store
+.idea/
+.vscode/
+
+# Model weights and training outputs
+models/
+checkpoints/
+adapters/
+artifacts/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+
+# Generated datasets stay local; manifests and curated samples remain trackable
+data/generated/
+data/processed/
+
+# Temporary reports; final reports under reports/ remain trackable
+reports/tmp/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
