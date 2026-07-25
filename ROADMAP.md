@@ -1,6 +1,8 @@
 # Agent Tool-Calling SFT & Evaluation Roadmap
 
-> 面向 AI 应用开发秋招的四周项目：在受限消费级硬件上，将 Qwen3-1.7B 微调为企业客服场景的安全工具路由模型，并用固定测试集、工程化 API 和公开产物证明效果。
+> 在受限消费级硬件（RTX 3060 Laptop、6GB 显存）上，将 Qwen3-1.7B 微调为企业客服场景的安全工具路由模型，用冻结基线、防泄漏测试集和配对统计检验证明效果。
+>
+> **范围声明：** 本项目聚焦模型层——微调、冻结基线评测与安全指标量化。RAG 检索、多轮 Agent 执行循环等应用层能力由已有项目覆盖，不在此重复实现。
 
 ## 1. 项目目标
 
@@ -14,41 +16,72 @@
 - 未获得用户确认就调用退款等有副作用的工具；
 - 面对越权、Prompt Injection 或未知业务时没有安全降级。
 
-本项目通过数据治理、4-bit QLoRA、固定基线评测和安全路由 API，验证 1.7B 小模型能否在限定业务中获得可量化提升。
+本项目通过数据治理、4-bit QLoRA 和固定基线配对评测，验证 1.7B 小模型能否在限定业务中获得可量化提升。
 
-### 1.2 简历可用的 Definition of Done
+### 1.2 裁剪依据——为什么砍掉一半
 
-只有同时满足以下条件，项目才进入“可写入简历”状态。这些是最终验收标准，不作为当前执行顺序的 checkbox：
+原始计划是一个独立四周项目。但对照已有项目的覆盖面，其中很大一部分是在**重复实现已经验证过的能力**：
 
-- 固定 held-out 测试集至少包含 500 条，且与训练集不存在场景模板族泄漏；
-- 微调模型整体行为准确率相对原始 Qwen3-1.7B 提升至少 10 个百分点；
+| 原计划内容 | 已有项目中的等价实现 | 增量 | 处置 |
+| --- | --- | --- | --- |
+| Pydantic 契约 / Schema 校验 | LLM 输出 Schema 校验、字段兜底与失败重试 | ≈0 | 降级，照搬现有模式 |
+| FastAPI 安全路由接口 | FastAPI lifespan + pydantic-settings 服务骨架 | ≈0 | 降级为最小接口 |
+| Docker + GitHub Actions CI | 已有 Dockerfile 与 CI 配置 | 0 | 复制配置，不作里程碑 |
+| 只读 RAG 联动 | 完整 RAG 检索与问答链路 | 负 | **删除** |
+| 评测指标体系 | LLM-as-Judge 四维评分 + golden set | 中 | 保留，方法升级为配对 bootstrap |
+| **4-bit QLoRA 训练** | **无** | **高** | **保留，一步不省** |
+| **冻结基线 + 模板族防泄漏切分** | 有 golden set，无冻结基线与防泄漏层 | **中高** | **保留，一步不省** |
+
+同一能力的第二份实现边际价值接近零。因此本项目只保留三块真增量：**QLoRA 微调本身**、**训练前后同配置配对评测**、**危险写工具误调用率的量化**。
+
+### 1.3 项目验收标准（Definition of Done）
+
+只有同时满足以下条件，项目才算完成：
+
+- 固定 held-out 测试集包含 500 条，且与训练集不存在场景模板族泄漏；
+- 微调模型整体行为准确率相对原始 Qwen3-1.7B 有统计显著提升（95% CI 下界大于 0）；
 - JSON 与工具 Schema 合法率不低于 99%；
 - 危险写工具误调用率不高于 2%；
 - 完成原始模型与微调模型的同配置配对评测和 95% bootstrap 置信区间；
-- FastAPI、GPU Docker 推理、CPU CI 测试均有可复现证据；
 - 公开脱敏 Dataset、LoRA Adapter、Model Card 和 GitHub README；
-- 所有简历数字都能追溯到版本化报告，不使用目标值冒充实测值。
+- 所有对外声明的数字都能追溯到版本化报告，不使用目标值冒充实测值。
 
-### 1.3 明确不做
+> 注意：原 DoD 中的"提升至少 10 个百分点"改为"统计显著提升"。理由见 6 节风险表——预设一个具体涨幅，等于在结果出来前就给自己挖了造假的坑。
+
+### 1.4 明确不做
 
 - 不做 DPO、GRPO、全参数微调或分布式训练；
-- 不做并行工具调用和完整 Agent 执行循环；
+- 不做并行工具调用和完整 Agent 执行循环（已有项目覆盖）；
+- **不做 RAG 联动**（已有项目覆盖，纯耗时）；
+- **不把 FastAPI 接口和 Docker 当作独立里程碑**（配置从现有项目复制）；
 - 不连接真实订单、退款、工单或客户数据；
-- 不把 4B 模型或付费云 GPU 设为四周主线的完成条件；
+- 不把 4B 模型或付费云 GPU 设为完成条件；
 - 不提交基座模型、checkpoint、密钥、`.env` 或未脱敏数据到 Git。
+
+### 1.5 时间预算
+
+| 阶段 | 预算 |
+| --- | ---: |
+| 第 0 阶段：环境门禁 | 3–4 小时 |
+| 阶段 A：数据与冻结基线 | 6–7 小时 |
+| 阶段 B：QLoRA 训练 | 6–7 小时 |
+| 阶段 C：配对评测与发布 | 5–6 小时 |
+| **合计** | **20–24 小时** |
+
+**最小可交付点：** 若时间不足以走完全部阶段，**在阶段 C 的 3.1 评测报告处停止**是可接受的交付状态——此时基线对比与置信区间已经成立，缺的只是发布物。不要为了补发布物而牺牲评测的严谨性。
 
 ## 2. 硬件分工与当前基线
 
 | 机器 | 已知配置 | 项目职责 | 当前状态 |
 | --- | --- | --- | --- |
 | Mac mini | Apple M4、24GB 统一内存、约 80GiB 可用空间 | 开发、数据生成/校验、Ollama Qwen3 8B 改写、评测与报告 | 已确认 |
-| 游戏本 | 12 代 i5、RTX 3060 Laptop、Windows + WSL2 Ubuntu | TRL/PEFT/bitsandbytes QLoRA、CUDA 推理、GPU Docker | 待 `nvidia-smi` 验证 |
+| 游戏本 | 12 代 i5、RTX 3060 Laptop、Windows + WSL2 Ubuntu | TRL/PEFT/bitsandbytes QLoRA、CUDA 推理 | 待 `nvidia-smi` 验证 |
 
 Mac 当前可用 Ollama 模型：`qwen3:8b`、`qwen3-fast:latest`、`bge-m3:latest`。Qwen3 8B 只能改写输入表达，不能改变规则生成的正确标签。
 
 ## 3. 目标目录结构
 
-后续按照职责逐步建立以下结构，不要在第 0 天一次性生成空文件：
+后续按照职责逐步建立以下结构，不要一次性生成空文件：
 
 ```text
 agent-toolcall-sft/
@@ -65,9 +98,7 @@ agent-toolcall-sft/
 │   ├── tools.py
 │   ├── data/
 │   ├── training/
-│   ├── evaluation/
-│   ├── api/
-│   └── integrations/
+│   └── evaluation/
 ├── data/
 │   ├── seeds/
 │   ├── samples/
@@ -87,7 +118,7 @@ agent-toolcall-sft/
 
 ### 0.1 仓库初始化
 
-- [x] 创建 `/Users/mdiven/Code/Projects/agent-toolcall-sft`；
+- [x] 创建项目根目录 `agent-toolcall-sft/`；
 - [x] 初始化本地 Git 仓库，默认分支为 `main`；
 - [x] 创建根目录 `ROADMAP.md` 与受版本控制的 `.gitignore`；
 - [x] 创建本地 `AGENTS.md`、`CLAUDE.md`，并通过 `.git/info/exclude` 排除；
@@ -118,7 +149,7 @@ df -h /
 
 - [ ] 安装或确认 `uv` 可用，并使用 Python 3.11 创建 `.venv`；
 - [ ] 根据 PyTorch 官方安装选择器和 `nvidia-smi` 的驱动兼容性安装 CUDA 版 PyTorch；不要在 WSL 内盲目安装完整系统 CUDA Toolkit；
-- [ ] 安装并锁定：Transformers、TRL、PEFT、Datasets、Accelerate、bitsandbytes、FastAPI、Pydantic、Uvicorn、pytest、pytest-cov、Ruff、mypy、httpx、PyYAML、jsonschema、numpy；
+- [ ] 安装并锁定：Transformers、TRL、PEFT、Datasets、Accelerate、bitsandbytes、Pydantic、pytest、Ruff、PyYAML、jsonschema、numpy；
 - [ ] 生成 `pyproject.toml` 和 `uv.lock`，提交确切解析版本；
 - [ ] 执行 CUDA smoke test：
 
@@ -138,13 +169,14 @@ PY
 
 ---
 
-## 第一周：任务定义、数据治理与原始模型基线
+## 阶段 A：数据治理与冻结基线
 
-**时间预算：10–12 小时**
+**时间预算：6–7 小时**
 
-### 1.1 工具和安全契约
+### 1.1 工具和安全契约（降级：1 小时封顶）
 
-- [ ] 先为工具 Schema 和决策类型编写失败测试；
+**直接复用已有项目中验证过的 Pydantic 判别联合模式，不重新走完整 TDD。** 这块能力已有实现可参照，投入产出比低。
+
 - [ ] 定义以下六个固定工具及 JSON Schema：
 
 | 工具 | 类型 | 关键规则 |
@@ -158,7 +190,8 @@ PY
 
 - [ ] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
 - [ ] 使用 Pydantic 判别联合确保四种决策互斥；
-- [ ] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验。
+- [ ] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验；
+- [ ] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖。
 
 建议提交：`feat: define tool-call and safety contracts`
 
@@ -186,44 +219,52 @@ PY
 }
 ```
 
-- [ ] 先测试字段缺失、未知 action、非法工具参数和真实 PII 模式；
 - [ ] 实现记录 Schema 与 JSONL 读写；
 - [ ] 为每条记录保留模板版本、seed 和改写来源；
+- [ ] 测试字段缺失、未知 action、非法工具参数和真实 PII 模式；
 - [ ] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
 
 建议提交：`feat: add versioned dataset record schema`
 
-### 1.3 规则数据生成与切分
+### 1.3 规则数据生成与切分（总量 5,000 → 2,800）
 
 - [ ] 建立人工可读的场景模板族，不从公开测试集复制样本；
-- [ ] 按以下目标分布生成 5,000 条：
+- [ ] 按以下目标分布生成 2,800 条：
 
 | 类别 | 比例 | 数量 |
 | --- | ---: | ---: |
-| 正确单工具调用 | 45% | 2,250 |
-| 参数缺失或歧义，需要澄清 | 20% | 1,000 |
-| 无需工具，直接回答 | 15% | 750 |
-| 确认、安全拒绝或转人工 | 15% | 750 |
-| Prompt Injection、越权和未知业务 | 5% | 250 |
+| 正确单工具调用 | 45% | 1,260 |
+| 参数缺失或歧义，需要澄清 | 20% | 560 |
+| 无需工具，直接回答 | 15% | 420 |
+| 确认、安全拒绝或转人工 | 15% | 420 |
+| Prompt Injection、越权和未知业务 | 5% | 140 |
 
 - [ ] 标签只由规则和 Schema 决定；
 - [ ] 使用固定 seed 生成内容，并将 manifest 写入 `data/manifests/`；
 - [ ] 可调用本机 `qwen3:8b` 改写用户表达，但改写后必须重新运行标签与 Schema 校验；
-- [ ] 按 `scenario_family` 分组切分为 4,000 train、500 valid、500 test；禁止逐条随机切分；
+- [ ] 按 `scenario_family` 分组切分为 **2,000 train / 300 valid / 500 test**；禁止逐条随机切分；
 - [ ] 执行内容 hash、规范化文本 hash、模板族交集和近重复检查；
 - [ ] 生成只读 split manifest，测试集生成后冻结版本。
 
+**为什么训练集从 4,000 砍到 2,000：** LoRA 在限定业务域 + 强模板化数据上通常已接近饱和；数据多样性上限由**模板族数量**决定，不由条数决定，加条数只是重复采样同样的族。把省下的时间投入模板族数量和审计质量，收益更高。
+
+**为什么测试集 500 一条不能砍：** 置信区间宽度 ∝ 1/√n。500 条时准确率差值的 95% CI 半宽约 ±4–5 个百分点，结论站得住；砍到 250 会变成 ±6–7，想证明的提升直接落进噪声。而规则生成测试集的边际成本几乎为零。
+
 建议提交：`feat: generate leakage-safe tool-call dataset`
 
-### 1.4 人工审计
+### 1.4 人工审计（100 → 60 条）
 
-- [ ] 从每种行为和安全标签分层抽取至少 100 条；
+- [ ] 从每种行为和安全标签**分层**抽取共 60 条（安全类别不得低于 15 条）；
 - [ ] 审计工具选择、参数、确认语义、自然度、PII 和安全标签；
 - [ ] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；
 - [ ] 修复规则后重新生成全部 split，不直接手改测试答案；
 - [ ] 在 `reports/data_audit_v1.md` 记录审计数量、错误数量、修复和剩余边界。
 
-### 1.5 原始模型 baseline
+> 降到 60 条只减少抽样量，不放松分层结构和修复流程——审计的价值在于"发现了什么并改了规则"，不在于条数。
+
+### 1.5 原始模型 baseline（一步不省）
+
+**这是整个项目的价值支点。没有冻结基线，后面所有数字都不可信。**
 
 - [ ] 固定 Qwen3 官方 Hermes 风格工具调用模板；
 - [ ] 固定解码：greedy 或 temperature 0、固定最大输出 token；
@@ -236,9 +277,9 @@ PY
 
 ---
 
-## 第二周：4-bit QLoRA 训练
+## 阶段 B：4-bit QLoRA 训练
 
-**时间预算：10–12 小时，主要在 RTX 3060 游戏本执行**
+**时间预算：6–7 小时，主要在 RTX 3060 游戏本执行。本阶段是项目唯一的硬增量，不做任何裁剪。**
 
 ### 2.1 固定首个训练配置
 
@@ -298,11 +339,13 @@ uv run python -m agent_toolcall_sft.training.train \
 
 ---
 
-## 第三周：统一评测、安全降级与 FastAPI
+## 阶段 C：配对评测与发布证据
 
-**时间预算：10–12 小时**
+**时间预算：5–6 小时**
 
-### 3.1 统一解析器和指标
+### 3.1 统一解析器和配对指标（一步不省）
+
+**方法论上与 LLM-as-Judge 形成互补：那类方法依赖模型评分，本项目使用冻结基线 + 统计检验，结论可复现且不依赖裁判模型。**
 
 - [ ] 先编写非法 JSON、未知工具、额外字段、缺参和多余调用的失败测试；
 - [ ] 将原始模型与微调模型输出统一解析为四种决策；
@@ -315,81 +358,45 @@ uv run python -m agent_toolcall_sft.training.train \
   - 危险写工具误调用率；
   - p50/p95 延迟、tokens/s、峰值显存和 Adapter 大小。
 - [ ] 使用相同测试样本做 paired bootstrap，报告差值的 95% 置信区间；
-- [ ] 不把无法解析的输出从分母中删除。
+- [ ] 不把无法解析的输出从分母中删除；
+- [ ] 生成 `reports/eval_v1.md`。
 
-### 3.2 固定对比与错误分析
+### 3.2 固定对比与错误分析（精简）
 
 - [ ] 对 base 和 Adapter 使用同一模型 revision、测试集和解码配置；
 - [ ] 输出逐样本 paired result；
-- [ ] 将失败归因到 data、parser、model 三类；
-- [ ] 生成混淆矩阵和代表性失败案例；
+- [ ] 生成混淆矩阵 + **5–8 个代表性失败案例**（不做全量归因分类）；
+- [ ] 将失败大致归因到 data、parser、model 三类；
 - [ ] 只有一次基于错误分析的数据修订机会，且不得查看测试答案后新增近似训练样本；
 - [ ] 如果重训，发布 v2 数据 manifest，并同时保留 v1 报告。
 
-### 3.3 FastAPI 安全路由接口
+### 3.3 最小推理接口（降级，非里程碑）
 
-公开接口：
+**目标只是让 Adapter 可被调用和演示，不重复实现服务层能力。** 复用已有的 FastAPI + pydantic-settings 骨架，控制在 1 小时内。
 
 ```text
 GET  /health
 POST /v1/route
 ```
 
-`POST /v1/route` 输入对话消息；输出为 Pydantic 判别联合：
-
-- `tool_call`：已通过工具名和参数 Schema 校验；
-- `clarify`：缺少参数、确认或存在歧义；
-- `direct_answer`：无需工具；
-- `handoff`：高风险、越权、未知业务或模型输出不可安全使用。
-
-- [ ] 响应包含 `model_version`、`request_id` 和 `latency_ms`；
+- [ ] `POST /v1/route` 输出为 Pydantic 判别联合（`tool_call` / `clarify` / `direct_answer` / `handoff`）；
 - [ ] 解析失败、未知工具或非法参数一律 fail closed；
-- [ ] 默认不记录原始用户文本和完整订单号；
-- [ ] 设置输入长度和生成 token 上限；
+- [ ] 响应包含 `model_version` 和 `latency_ms`；
 - [ ] 使用模拟订单与工单 fixture，不执行真实业务写入；
-- [ ] API 测试使用 fake model backend，不依赖 GPU。
+- [ ] API 测试使用 fake model backend，不依赖 GPU；
+- [ ] Dockerfile 与 GitHub Actions 配置从已有项目复制适配，**不单独作为里程碑验收**。
 
-建议提交：`feat: serve validated tool-routing decisions`
+### 3.4 发布与指标可追溯性
 
----
-
-## 第四周：Docker、RAG 联动、发布与简历证据
-
-**时间预算：10–12 小时**
-
-### 4.1 CPU CI 与 GPU Docker
-
-- [ ] GitHub Actions 在 CPU 上运行：pytest、数据 Schema、泄漏测试、API mock、Ruff 和 mypy；
-- [ ] CI 不下载 1.7B 基座模型、不运行 CUDA 测试、不训练模型；
-- [ ] 构建推理 Dockerfile；
-- [ ] 在 WSL2 + NVIDIA Container Toolkit 运行容器并验证 `GET /health`、`POST /v1/route`；
-- [ ] 比较容器与本地 WSL2 的响应 Schema 和固定 smoke cases；
-- [ ] 记录镜像大小、启动时间、推理峰值显存和限制条件。
-
-### 4.2 只读 RAG 联动
-
-- [ ] 在本项目实现 `RagClient`，通过环境变量读取现有 RAG 服务地址；
-- [ ] `search_knowledge_base` 只调用现有 `/ask`，不修改 `rag-agent-platform`；
-- [ ] RAG 不可用、超时或返回非法响应时转人工或返回安全错误；
-- [ ] 写工具仍只使用模拟 fixture；
-- [ ] 增加 httpx mock 测试，覆盖成功、超时、5xx 和非法 JSON。
-
-### 4.3 README 与公开产物
-
-- [ ] README 包含架构图、硬件分工、数据治理、训练配置、复现命令、基线对比、失败案例、安全边界和成本；
+- [ ] README 包含：问题定义、硬件约束、数据治理与防泄漏、训练配置、复现命令、**基线对比表与置信区间**、代表性失败案例、安全边界；
 - [ ] Hugging Face Dataset Card 说明合成方法、标签规则、切分、防泄漏、许可和限制；
 - [ ] Model Card 说明基座、Adapter、训练硬件、评测集、指标、已知失败和禁止用途；
 - [ ] 只发布脱敏数据与 LoRA Adapter，不重复上传基座权重；
 - [ ] 发布前扫描密钥、用户名、绝对本地路径、PII 和大文件；
-- [ ] 由用户明确确认后才创建 GitHub Remote、push 或发布 Hugging Face 产物。
-
-### 4.4 简历证据
-
-- [ ] 创建 `docs/resume_evidence.md`；
-- [ ] 每个候选简历 bullet 标注对应报告、commit、数据 manifest 和命令；
+- [ ] 由用户明确确认后才创建 GitHub Remote、push 或发布 Hugging Face 产物；
+- [ ] 创建 `docs/evidence/metrics_traceability.md`，每个对外声明的指标标注对应报告、commit、数据 manifest 和复现命令；
 - [ ] 只使用实测数字，不把本 roadmap 的目标阈值写成结果；
-- [ ] 准备 3 分钟项目讲述：业务问题、为什么微调、数据、训练、评测、失败、安全和取舍；
-- [ ] 准备追问：为什么不用 Prompt/RAG、为何 1.7B、如何防泄漏、QLoRA 原理、为什么不用 DPO、6GB 显存如何控制、负结果怎么办。
+- [ ] 整理项目讲述要点：为什么在已有应用层项目之外还要微调、数据怎么防泄漏、为什么冻结基线、6GB 显存怎么控制、结果和边界。
 
 建议提交：`docs: publish reproducible model evidence`
 
@@ -408,8 +415,7 @@ POST /v1/route
 - [ ] 非法 JSON、未知工具、非法枚举和额外字段安全降级；
 - [ ] 中文、英文、Unicode、长输入和重复请求稳定处理；
 - [ ] 数据 split 不共享场景模板族；
-- [ ] Adapter 可在独立进程加载并复现固定 smoke cases；
-- [ ] Docker 与本地 WSL2 使用相同响应 Schema。
+- [ ] Adapter 可在独立进程加载并复现固定 smoke cases。
 
 ## 5. 每个里程碑的证据模板
 
@@ -432,7 +438,8 @@ POST /v1/route
 | 指标提升但安全退化 | 不通过项目门槛，优先修复危险误调用 |
 | 测试集被用于调参 | 冻结 manifest；只允许从 valid 和错误类别修订 |
 | 发布泄露信息 | 发布前扫描密钥、PII、用户名、绝对路径和大文件 |
-| 指标不达标 | 如实记录负结果，不编造简历数字 |
+| **提升幅度不及预期** | **如实记录并分析原因。DoD 只要求统计显著，不预设涨幅——一个诚实的小提升配清晰的边界分析，价值高于可疑的漂亮数字** |
+| **时间不足** | **停在 3.1 评测报告，按已有证据交付；不为补发布物牺牲评测严谨性** |
 
 ## 7. 技术依据
 
@@ -440,4 +447,3 @@ POST /v1/route
 - Qwen3-1.7B：<https://huggingface.co/Qwen/Qwen3-1.7B>
 - TRL SFTTrainer：<https://huggingface.co/docs/trl/main/sft_trainer>
 - PEFT LoRA：<https://huggingface.co/docs/peft/index>
-- MLX-LM：<https://github.com/ml-explore/mlx-lm>
