@@ -183,7 +183,7 @@ PY
 
 **直接复用已有项目中验证过的 Pydantic 判别联合模式，不重新走完整 TDD。** 这块能力已有实现可参照，投入产出比低。
 
-- [ ] 定义以下七个固定工具及 JSON Schema：
+- [x] 定义以下七个固定工具及 JSON Schema：
 
 | 工具 | 类型 | 必填参数 | 关键规则 |
 | --- | --- | --- | --- |
@@ -195,12 +195,12 @@ PY
 | `create_refund_request` | **写·危险** | `order_id`、`reason`、`confirmed` | `confirmed` 只能为 `true`，未确认在类型层面不可表达 |
 | `create_support_ticket` | 写·客服 | `summary` | 不能包含真实 PII |
 
-- [ ] 前三个工具的名称与参数名必须与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 完全一致，**不得改名或改参数名**；
-- [ ] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
-- [ ] 使用 Pydantic 判别联合确保四种决策互斥，工具调用按 `name` 判别；
-- [ ] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验（`extra="forbid"`）；
-- [ ] 提供唯一解析入口 `parse_decision()`，数据生成、评测与推理接口三处共用；
-- [ ] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖。
+- [x] 前三个工具的名称与参数名必须与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 完全一致，**不得改名或改参数名**；
+- [x] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
+- [x] 使用 Pydantic 判别联合确保四种决策互斥，工具调用按 `name` 判别；
+- [x] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验（`extra="forbid"`）；
+- [x] 提供唯一解析入口 `parse_decision()`，数据生成、评测与推理接口三处共用；
+- [x] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖。
 
 > `handoff` 只作为决策存在，不再定义 `handoff_to_human` 工具。同一语义保留两种合法表示会让评测无法判定对错。
 
