@@ -147,15 +147,13 @@ df -h /
 
 ### 0.3 Python 与 CUDA 用户态环境
 
-- [x] 安装或确认独立版 `uv` 可用，并使用现有 Python 3.11 Conda 环境 `sft`；设置 `UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"`，不重复创建 `.venv`；
+- [x] 安装或确认独立版 `uv` 可用；用 `.python-version` 固定 Python 3.11，由 `uv venv` 在项目根目录创建 `.venv`，不依赖 Conda；
 - [x] 根据 PyTorch 官方安装选择器和 `nvidia-smi` 的驱动兼容性安装 CUDA 版 PyTorch；不要在 WSL 内盲目安装完整系统 CUDA Toolkit；
 - [x] 安装并锁定：Transformers、TRL、PEFT、Datasets、Accelerate、bitsandbytes、Pydantic、pytest、Ruff、PyYAML、jsonschema、numpy；
 - [x] 生成 `pyproject.toml` 和 `uv.lock`，提交确切解析版本；
 - [x] 执行 CUDA smoke test：
 
 ```bash
-conda activate sft
-export UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"
 ~/.local/bin/uv run python - <<'PY'
 import torch
 print("torch:", torch.__version__)
