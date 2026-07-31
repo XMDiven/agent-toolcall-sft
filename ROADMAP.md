@@ -231,13 +231,15 @@ PY
 }
 ```
 
-- [ ] 实现记录 Schema 与 JSONL 读写；
-- [ ] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；
-- [ ] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；
-- [ ] 为每条记录保留模板版本、seed 和改写来源；
-- [ ] `expected_tool_call.name` 必须出现在 `tools` 中，否则视为数据错误；
-- [ ] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
+- [x] 实现记录 Schema 与 JSONL 读写；
+- [x] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；
+- [x] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；
+- [x] 为每条记录保留模板版本、seed 和改写来源；
+- [x] `expected_tool_call.name` 必须出现在 `tools` 中，否则视为数据错误；
+- [x] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
 - [ ] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
+
+> Schema 层的 `contains_pii()` 只能拦住手机号、邮箱和身份证这类**有固定格式**的标识符。姓名和地址没有可靠正则，只能靠 1.3 的模板设计和 1.4 的人工审计保证，因此最后一条留到 1.4 完成后再勾。
 
 建议提交：`feat: add versioned dataset record schema`
 

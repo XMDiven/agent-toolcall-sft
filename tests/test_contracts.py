@@ -1,7 +1,9 @@
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError
 
-from agent_toolcall_sft.contracts import parse_decision
+from agent_toolcall_sft.contracts import ALL_TOOL_NAMES, ToolCall, parse_decision
 
 
 def _refund_payload(**overrides):
@@ -68,3 +70,11 @@ def test_refund_without_order_id_is_rejected():
 def test_extra_argument_is_rejected():
     with pytest.raises(ValidationError):
         parse_decision(_refund_payload(admin=True))
+
+
+def test_name_constants_stay_in_sync_with_the_tool_union():
+    members = get_args(get_args(ToolCall)[0])
+    tags = {
+        get_args(member.model_fields["name"].annotation)[0] for member in members
+    }
+    assert tags == ALL_TOOL_NAMES

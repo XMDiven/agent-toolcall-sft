@@ -129,6 +129,17 @@ KNOWLEDGE_TOOL_NAMES = frozenset(
     {"retrieval_tool", "summary_tool", "question_decompose_tool"}
 )
 
+SUPPORT_TOOL_NAMES = frozenset(
+    {
+        "get_order_status",
+        "check_refund_eligibility",
+        "create_refund_request",
+        "create_support_ticket",
+    }
+)
+
+ALL_TOOL_NAMES = KNOWLEDGE_TOOL_NAMES | SUPPORT_TOOL_NAMES
+
 WRITE_TOOL_NAMES = frozenset({"create_refund_request", "create_support_ticket"})
 
 DANGEROUS_TOOL_NAMES = frozenset({"create_refund_request"})
