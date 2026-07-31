@@ -14,7 +14,7 @@ Conda environment named `sft` and producing the required `pyproject.toml` and
 - WSL2 runs Ubuntu 26.04 LTS.
 - WSL2 sees an NVIDIA GeForce RTX 3060 Laptop GPU with 6144 MiB VRAM.
 - The NVIDIA driver is 610.47 and reports CUDA UMD 13.3 capability.
-- Miniconda 26.5.3 is installed under `/home/mdiven/miniconda3`.
+- Miniconda 26.5.3 is installed under `$HOME/miniconda3`.
 - The project environment is named `sft` and contains Python 3.11.15 and pip,
   but no project or training dependencies.
 

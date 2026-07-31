@@ -128,7 +128,7 @@ agent-toolcall-sft/
 
 ### 0.2 WSL2 GPU 门禁——下一步从这里开始
 
-- [ ] 在游戏本的 WSL2 Ubuntu 中执行并保存以下命令输出：
+- [x] 在游戏本的 WSL2 Ubuntu 中执行并保存以下命令输出：
 
 ```bash
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
@@ -139,22 +139,24 @@ free -h
 df -h /
 ```
 
-- [ ] 将非敏感结果记录到 `docs/evidence/hardware-wsl.md`；不要记录设备序列号、Windows 用户名或公网 IP；
-- [ ] 验证 GPU 名称为 RTX 3060 Laptop，WSL 可见显存不少于 6144 MiB；
-- [ ] 验证 WSL 根分区至少保留 25GiB 可用空间。
+- [x] 将非敏感结果记录到 `docs/evidence/hardware-wsl.md`；不要记录设备序列号、Windows 用户名或公网 IP；
+- [x] 验证 GPU 名称为 RTX 3060 Laptop，WSL 可见显存不少于 6144 MiB；
+- [x] 验证 WSL 根分区至少保留 25GiB 可用空间。
 
 **停止条件：** `nvidia-smi` 不可用、显存少于 6144 MiB 或磁盘不足时，不安装训练依赖、不下载模型。先修复 WSL GPU 透传或空间问题。
 
 ### 0.3 Python 与 CUDA 用户态环境
 
-- [ ] 安装或确认 `uv` 可用，并使用 Python 3.11 创建 `.venv`；
-- [ ] 根据 PyTorch 官方安装选择器和 `nvidia-smi` 的驱动兼容性安装 CUDA 版 PyTorch；不要在 WSL 内盲目安装完整系统 CUDA Toolkit；
-- [ ] 安装并锁定：Transformers、TRL、PEFT、Datasets、Accelerate、bitsandbytes、Pydantic、pytest、Ruff、PyYAML、jsonschema、numpy；
-- [ ] 生成 `pyproject.toml` 和 `uv.lock`，提交确切解析版本；
-- [ ] 执行 CUDA smoke test：
+- [x] 安装或确认独立版 `uv` 可用，并使用现有 Python 3.11 Conda 环境 `sft`；设置 `UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"`，不重复创建 `.venv`；
+- [x] 根据 PyTorch 官方安装选择器和 `nvidia-smi` 的驱动兼容性安装 CUDA 版 PyTorch；不要在 WSL 内盲目安装完整系统 CUDA Toolkit；
+- [x] 安装并锁定：Transformers、TRL、PEFT、Datasets、Accelerate、bitsandbytes、Pydantic、pytest、Ruff、PyYAML、jsonschema、numpy；
+- [x] 生成 `pyproject.toml` 和 `uv.lock`，提交确切解析版本；
+- [x] 执行 CUDA smoke test：
 
 ```bash
-uv run python - <<'PY'
+conda activate sft
+export UV_PROJECT_ENVIRONMENT="$CONDA_PREFIX"
+~/.local/bin/uv run python - <<'PY'
 import torch
 print("torch:", torch.__version__)
 print("cuda_available:", torch.cuda.is_available())
