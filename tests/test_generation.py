@@ -13,7 +13,9 @@ from agent_toolcall_sft.contracts import (
 from agent_toolcall_sft.data.families import (
     ALL_FAMILIES,
     CLARIFY_FAMILIES,
+    CORPUS_SIZE,
     DIRECT_ANSWER_FAMILIES,
+    FAMILY_QUOTAS,
     HANDOFF_FAMILIES,
     KNOWLEDGE_FAMILIES,
     REFUND_CONFIRMED,
@@ -21,6 +23,8 @@ from agent_toolcall_sft.data.families import (
 )
 from agent_toolcall_sft.data.generation import (
     TEMPLATE_VERSION,
+    InsufficientVariety,
+    ScenarioFamily,
     generate_family,
     offer_idle_tools,
     offer_tools,
@@ -66,10 +70,21 @@ def test_every_family_tags_its_records(family_records):
         assert record.provenance.template_version == TEMPLATE_VERSION
 
 
-def test_every_family_records_the_seed_that_built_each_record(family_records):
-    _, records = family_records
-    expected = list(range(SAMPLE_SEED, SAMPLE_SEED + SAMPLE_COUNT))
-    assert [record.provenance.seed for record in records] == expected
+def test_every_family_records_a_usable_seed(family_records):
+    """Seeds skip where duplicates were rejected, but stay ordered and exact."""
+    family, records = family_records
+    seeds = [record.provenance.seed for record in records]
+
+    assert seeds[0] == SAMPLE_SEED
+    assert seeds == sorted(seeds)
+    assert len(set(seeds)) == len(seeds)
+
+    for record in records[:5]:
+        rebuilt = family.draft(random.Random(f"{family.name}:{record.provenance.seed}"))
+        assert rebuilt.messages == [
+            {"role": message.role, "content": message.content}
+            for message in record.messages
+        ]
 
 
 def test_every_family_offers_only_known_tools(family_records):
@@ -82,6 +97,69 @@ def test_every_family_offers_only_known_tools(family_records):
 def test_every_family_produces_more_than_one_distinct_message(family_records):
     _, records = family_records
     assert len({record.messages[0].content for record in records}) > 1
+
+
+# ---------------------------------------------------------------------------
+# Variety gate
+#
+# Near-duplicate rows break the independence assumption behind the bootstrap
+# confidence interval: 140 rows drawn from four sentences carry the evidence
+# of four samples, not 140, and the interval computed from them is far too
+# narrow. A family that cannot fill its quota with distinct messages has to
+# fail here rather than quietly inflate the result.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("family", ALL_FAMILIES, ids=lambda f: f.name)
+def test_family_fills_its_roadmap_quota_with_distinct_messages(family):
+    quota = FAMILY_QUOTAS[family.name]
+    records = generate_family(family, count=quota, seed_base=1)
+
+    contents = {record.messages[0].content for record in records}
+    assert len(records) == quota
+    assert len(contents) == quota
+
+
+def test_quotas_cover_every_family_and_sum_to_the_corpus_size():
+    assert set(FAMILY_QUOTAS) == {family.name for family in ALL_FAMILIES}
+    assert CORPUS_SIZE == 2800
+
+
+def test_a_family_too_narrow_for_its_quota_raises():
+    narrow = ScenarioFamily(
+        name="narrow",
+        domain="support",
+        draft=lambda rng: generate_narrow_draft(),
+    )
+    with pytest.raises(InsufficientVariety, match="narrow"):
+        generate_family(narrow, count=5, seed_base=1)
+
+
+def generate_narrow_draft():
+    from agent_toolcall_sft.data.generation import RecordDraft
+
+    return RecordDraft(
+        messages=[{"role": "user", "content": "只有这一句话"}],
+        tools=["get_order_status"],
+        expected_decision={"action": "clarify", "question": "请提供订单号。"},
+    )
+
+
+def test_families_do_not_share_synthetic_order_ids():
+    """Without a family-salted seed every family emits the same id sequence."""
+    from agent_toolcall_sft.data.families import (
+        ORDER_STATUS_LOOKUP,
+        REFUND_ELIGIBILITY_CHECK,
+    )
+
+    def ids(family):
+        return [
+            record.expected_decision.tool_call.arguments.order_id
+            for record in generate_family(family, count=20, seed_base=1)
+        ]
+
+    assert ids(REFUND_CONFIRMED) != ids(ORDER_STATUS_LOOKUP)
+    assert ids(ORDER_STATUS_LOOKUP) != ids(REFUND_ELIGIBILITY_CHECK)
 
 
 # ---------------------------------------------------------------------------

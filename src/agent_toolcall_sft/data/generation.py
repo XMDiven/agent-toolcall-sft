@@ -29,6 +29,9 @@ IDLE_TOOL_RANGE = (2, 5)
 # rag-agent-platform tools, exercising subset routing.
 KNOWLEDGE_ONLY_RATIO = 0.5
 
+# How many draws per requested record before a family is declared too narrow.
+UNIQUENESS_ATTEMPT_FACTOR = 60
+
 
 @dataclass(frozen=True)
 class RecordDraft:
@@ -110,17 +113,63 @@ def wrap(rng: random.Random, wrappers: tuple[str, ...], **parts: str) -> str:
     return rng.choice(wrappers).format(**parts)
 
 
+def compose(
+    rng: random.Random,
+    core: str,
+    openers: tuple[str, ...],
+    closers: tuple[str, ...],
+) -> str:
+    """Surround a core utterance with an optional opener and closer.
+
+    Short utterances such as greetings have few natural phrasings. Composing
+    independent particles multiplies the reachable sentences instead of
+    forcing the same handful of lines to repeat dozens of times.
+    """
+    return f"{rng.choice(openers)}{core}{rng.choice(closers)}"
+
+
+class InsufficientVariety(RuntimeError):
+    """A family cannot fill its quota with distinct user messages.
+
+    Raised instead of silently emitting duplicates: near-identical rows break
+    the independence assumption behind the bootstrap confidence interval, so
+    a quota a family cannot honestly fill has to fail loudly.
+    """
+
+
 def generate_family(
     family: ScenarioFamily, count: int, seed_base: int
 ) -> list[DatasetRecord]:
-    """Generate `count` records for one family, one seed per record."""
+    """Generate `count` records with distinct user messages.
+
+    Each record is built from its own seed, salted with the family name so
+    two families never draw the same random stream -- without the salt every
+    family emits the same synthetic order ids in the same order.
+    """
     records: list[DatasetRecord] = []
-    for index in range(count):
-        seed = seed_base + index
-        draft = family.draft(random.Random(seed))
+    seen: set[tuple[tuple[str, str], ...]] = set()
+    attempt_limit = count * UNIQUENESS_ATTEMPT_FACTOR
+    seed = seed_base
+
+    while len(records) < count:
+        if seed - seed_base >= attempt_limit:
+            raise InsufficientVariety(
+                f"{family.name} yielded only {len(records)} distinct messages "
+                f"of the {count} requested; add templates or lower the quota"
+            )
+
+        draft = family.draft(random.Random(f"{family.name}:{seed}"))
+        key = tuple((m["role"], m["content"]) for m in draft.messages)
+        current_seed = seed
+        seed += 1
+
+        if key in seen:
+            continue
+        seen.add(key)
+
         records.append(
             DatasetRecord(
-                id=f"{family.name}_{index:06d}",
+                id=f"{family.name}_{len(records):06d}",
                 scenario_family=family.name,
                 domain=family.domain,
                 messages=draft.messages,
@@ -131,7 +180,7 @@ def generate_family(
                 provenance={
                     "generator": "rule",
                     "template_version": TEMPLATE_VERSION,
-                    "seed": seed,
+                    "seed": current_seed,
                 },
             )
         )
