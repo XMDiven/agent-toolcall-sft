@@ -60,3 +60,9 @@ def test_sheet_lists_every_sampled_record(sample):
     for record in sample:
         assert record.id in sheet
     assert sheet.count("- [ ] 通过") == len(sample)
+
+
+def test_sample_prefers_distinct_templates(sample):
+    """Two rows from one template teach an auditor nothing the first did not."""
+    keys = [record.template_key for record in sample]
+    assert len(set(keys)) == len(keys)

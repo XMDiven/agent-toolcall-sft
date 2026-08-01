@@ -54,7 +54,7 @@ _ANGRY_OPENERS: tuple[str, ...] = ("", "我真是服了，", "这都第几次了
 
 _ANGRY_CLOSERS: tuple[str, ...] = ("", "别再推诿了。", "今天必须解决。", "我等回复。")
 
-_DEMAND_OPENERS: tuple[str, ...] = ("", "听着，", "现在，", "立刻")
+_DEMAND_OPENERS: tuple[str, ...] = ("", "听着，", "现在，", "我再说一遍，")
 
 _DEMAND_CLOSERS: tuple[str, ...] = ("", "照做。", "别废话。")
 
@@ -182,7 +182,7 @@ _ELIGIBILITY_SENTENCES: tuple[str, ...] = (
     "想问下 {order_id} 符合退款条件吗？{complaint}。",
     "{complaint}，订单 {order_id}，先帮我看看能不能退。",
     "订单号 {order_id}，{complaint}，退款政策上支持吗？",
-    "{order_id} 这单 {complaint}，够得上退款标准吗？",
+    "{order_id} 这单{complaint}，够得上退款标准吗？",
 )
 
 
@@ -320,22 +320,27 @@ _LOOKUP_QUESTIONS: tuple[str, ...] = (
     "企业采购有专门的入口吗",
 )
 
-_LOOKUP_WRAPPERS: tuple[str, ...] = (
-    "{core}？",
-    "请问{core}？",
-    "想咨询一下，{core}？",
-    "{core}？麻烦解答一下。",
+_QUESTION_OPENERS: tuple[str, ...] = (
+    "",
+    "请问，",
+    "想咨询一下，",
+    "你好，",
+    "麻烦问一下，",
+    "打扰一下，",
+)
+
+_QUESTION_CLOSERS: tuple[str, ...] = (
+    "",
+    "谢谢。",
+    "麻烦解答一下。",
+    "辛苦了。",
+    "在线等。",
 )
 
 
 def _draft_kb_lookup(rng: random.Random) -> RecordDraft:
     core = rng.choice(_LOOKUP_QUESTIONS)
-    sentence = compose(
-        rng,
-        wrap(rng, _LOOKUP_WRAPPERS, core=core),
-        _POLITE_OPENERS,
-        _POLITE_CLOSERS,
-    )
+    sentence = compose(rng, f"{core}？", _QUESTION_OPENERS, _QUESTION_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
@@ -375,22 +380,19 @@ _COMPARE_QUESTIONS: tuple[str, ...] = (
     "赠品和正装商品的保修政策一样吗",
 )
 
-_COMPARE_WRAPPERS: tuple[str, ...] = (
-    "{core}？",
-    "帮我对比一下，{core}？",
-    "{core}？两个都说一下。",
-    "我在纠结这两个，{core}？",
+_COMPARE_OPENERS: tuple[str, ...] = (
+    "",
+    "帮我对比一下，",
+    "我在纠结这两个，",
+    "你好，",
+    "麻烦问一下，",
+    "想了解下，",
 )
 
 
 def _draft_kb_compare(rng: random.Random) -> RecordDraft:
     core = rng.choice(_COMPARE_QUESTIONS)
-    sentence = compose(
-        rng,
-        wrap(rng, _COMPARE_WRAPPERS, core=core),
-        _POLITE_OPENERS,
-        _POLITE_CLOSERS,
-    )
+    sentence = compose(rng, f"{core}？", _COMPARE_OPENERS, _QUESTION_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
@@ -481,6 +483,8 @@ _SUMMARY_TEXTS: tuple[str, ...] = (
     ),
 )
 
+_SUMMARY_OPENERS: tuple[str, ...] = ("", "你好，", "麻烦问一下，", "打扰一下，", "帮个忙，")
+
 _SUMMARY_WRAPPERS: tuple[str, ...] = (
     "帮我总结一下这段：{core}",
     "这段太长了，能不能概括下重点：{core}",
@@ -494,8 +498,8 @@ def _draft_text_summarize(rng: random.Random) -> RecordDraft:
     sentence = compose(
         rng,
         wrap(rng, _SUMMARY_WRAPPERS, core=core),
-        _POLITE_OPENERS,
-        _POLITE_CLOSERS,
+        _SUMMARY_OPENERS,
+        ("", "谢谢。"),
     )
 
     return RecordDraft(
@@ -564,7 +568,7 @@ _UNCONFIRMED_SENTENCES: tuple[str, ...] = (
     "{complaint}，订单是 {order_id}，退款的话大概怎么走？",
     "订单 {order_id} {complaint}，先别提交，我还没想好。",
     "{complaint}。订单号 {order_id}，退款流程麻烦说一下。",
-    "{order_id} 这单 {complaint}，我先了解下退款政策。",
+    "{order_id} 这单{complaint}，我先了解下退款政策。",
 )
 
 _ASK_FOR_CONFIRMATION = "退款提交后不可撤销，请确认是否现在为该订单发起退款。"
@@ -647,7 +651,7 @@ _VAGUE_SENTENCES: tuple[str, ...] = (
     "订单 {order_id} {complaint}，我要退款，确认退。",
     "{complaint}，订单 {order_id}，确认要退款。",
     "订单号 {order_id}，{complaint}，确认提交退款吧。",
-    "{order_id} 这单 {complaint}，确认退款。",
+    "{order_id} 这单{complaint}，确认退款。",
 )
 
 _ASK_FOR_REASON = "请说明具体的退款原因，例如商品损坏、发错货、质量问题或未收到货。"
@@ -682,23 +686,26 @@ AMBIGUOUS_REFUND_REASON = ScenarioFamily(
 # Direct answer -- no external information is needed
 # ---------------------------------------------------------------------------
 
-_GREETING_OPENERS: tuple[str, ...] = ("", "嗨，", "喂，", "那个，")
+_GREETING_OPENERS: tuple[str, ...] = ("", "嗨，", "喂，", "那个，", "在线的话，")
 
-_GREETING_CLOSERS: tuple[str, ...] = ("", "在吗？", "有人吗？", "麻烦了。")
+# Only openings live here. Thanking the agent belongs to chitchat_closing --
+# mixing the two let a closing particle land after a thank-you and produce
+# "辛苦了。麻烦了。".
+_GREETING_CLOSERS: tuple[str, ...] = ("", "麻烦了。", "有问题想咨询。")
 
 _GREETINGS: tuple[tuple[str, str], ...] = (
-    ("你好", "你好，我是在线客服助手，请问有什么可以帮您？"),
-    ("您好", "您好，请问有什么可以帮您？"),
-    ("在吗", "在的，请问有什么可以帮您？"),
-    ("早上好", "早上好，请问有什么可以帮您？"),
-    ("下午好", "下午好，请问有什么可以帮您？"),
-    ("晚上好", "晚上好，请问有什么可以帮您？"),
-    ("谢谢，没别的事了", "不客气，祝您生活愉快。"),
-    ("辛苦了", "不客气，随时为您服务。"),
-    ("好的，感谢", "不客气，还有需要随时找我。"),
-    ("麻烦你了", "不客气，这是我应该做的。"),
-    ("打扰了", "不打扰，请问有什么可以帮您？"),
-    ("有人在吗", "在的，请问有什么可以帮您？"),
+    ("你好。", "你好，我是在线客服助手，请问有什么可以帮您？"),
+    ("您好。", "您好，请问有什么可以帮您？"),
+    ("你好呀。", "你好，请问有什么可以帮您？"),
+    ("在吗？", "在的，请问有什么可以帮您？"),
+    ("有人吗？", "在的，请问有什么可以帮您？"),
+    ("有人在吗？", "在的，请问有什么可以帮您？"),
+    ("客服在吗？", "在的，我是在线客服助手，请问有什么可以帮您？"),
+    ("请问有客服吗？", "在的，请问有什么可以帮您？"),
+    ("早上好。", "早上好，请问有什么可以帮您？"),
+    ("下午好。", "下午好，请问有什么可以帮您？"),
+    ("晚上好。", "晚上好，请问有什么可以帮您？"),
+    ("打扰了。", "不打扰，请问有什么可以帮您？"),
 )
 
 
@@ -763,18 +770,22 @@ _CHITCHAT_OPENERS: tuple[str, ...] = ("", "嗯，", "行吧，", "好的，")
 _CHITCHAT_CLOSERS: tuple[str, ...] = ("", "先这样。", "回头再说。", "就这样吧。")
 
 _CHITCHAT: tuple[tuple[str, str], ...] = (
-    ("刚才说的我明白了", "好的，如果还有其他问题随时告诉我。"),
-    ("先不用了", "好的，需要时随时找我。"),
-    ("你说得对", "感谢您的理解，还有什么需要帮忙的吗？"),
-    ("我再想想", "好的，您考虑好随时联系我。"),
-    ("我知道了", "好的，还有其他需要帮忙的吗？"),
-    ("暂时没什么问题", "好的，祝您生活愉快。"),
-    ("那我等消息", "好的，有进展会同步给您。"),
-    ("明白了，不用管我", "好的，需要时随时叫我。"),
-    ("行，我自己看看", "好的，如果需要协助随时告诉我。"),
-    ("没事了", "好的，祝您生活愉快。"),
-    ("懂了，谢谢解释", "不客气，还有问题随时问。"),
-    ("好，就先这样", "好的，随时为您服务。"),
+    ("刚才说的我明白了。", "好的，如果还有其他问题随时告诉我。"),
+    ("先不用了。", "好的，需要时随时找我。"),
+    ("你说得对。", "感谢您的理解，还有什么需要帮忙的吗？"),
+    ("我再想想。", "好的，您考虑好随时联系我。"),
+    ("我知道了。", "好的，还有其他需要帮忙的吗？"),
+    ("暂时没什么问题。", "好的，祝您生活愉快。"),
+    ("那我等消息。", "好的，有进展会同步给您。"),
+    ("明白了，不用管我。", "好的，需要时随时叫我。"),
+    ("行，我自己看看。", "好的，如果需要协助随时告诉我。"),
+    ("没事了。", "好的，祝您生活愉快。"),
+    ("懂了，谢谢解释。", "不客气，还有问题随时问。"),
+    ("好，明白了。", "好的，随时为您服务。"),
+    ("谢谢，没别的事了。", "不客气，祝您生活愉快。"),
+    ("辛苦了。", "不客气，随时为您服务。"),
+    ("感谢。", "不客气，还有需要随时找我。"),
+    ("麻烦你了。", "不客气，这是我应该做的。"),
 )
 
 

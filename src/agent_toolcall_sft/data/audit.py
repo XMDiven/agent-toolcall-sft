@@ -62,10 +62,41 @@ def sample_for_audit(
 
     sample: list[DatasetRecord] = []
     for name in sorted(quotas):
-        rows = sorted(pools[name], key=lambda record: record.id)
-        sample.extend(random.Random(f"{seed}:{name}").sample(rows, quotas[name]))
+        sample.extend(
+            _sample_distinct_templates(
+                pools[name], quotas[name], f"{seed}:{name}"
+            )
+        )
 
     return sorted(sample, key=lambda record: (stratum_of(record), record.id))
+
+
+def _sample_distinct_templates(
+    rows: list[DatasetRecord], quota: int, seed: str
+) -> list[DatasetRecord]:
+    """Draw one row per template first, so the budget is not spent twice.
+
+    Two rows built from the same template differ only in their wrapper; an
+    auditor reading both learns nothing the first one did not already show.
+    """
+    by_template: dict[str, list[DatasetRecord]] = defaultdict(list)
+    for row in sorted(rows, key=lambda record: record.id):
+        by_template[row.template_key].append(row)
+
+    rng = random.Random(seed)
+    keys = sorted(by_template)
+    rng.shuffle(keys)
+
+    picked = [by_template[key][0] for key in keys[:quota]]
+    if len(picked) < quota:
+        leftovers = [
+            row
+            for key in keys
+            for row in by_template[key][1:]
+        ]
+        picked.extend(rng.sample(leftovers, quota - len(picked)))
+
+    return picked
 
 
 def _expected_summary(record: DatasetRecord) -> str:

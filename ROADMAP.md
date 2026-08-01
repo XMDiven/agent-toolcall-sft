@@ -241,7 +241,7 @@ PY
 - [x] `expected_decision` 存放四种决策的完整标准答案，类型复用 `contracts.Decision`；`expected_action` 必须与之一致；
 - [x] `expected_decision` 中的工具名必须出现在 `tools` 中，否则视为数据错误；
 - [x] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
-- [ ] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
+- [x] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
 
 > Schema 层的 `contains_pii()` 只能拦住手机号、邮箱和身份证这类**有固定格式**的标识符。姓名和地址没有可靠正则，只能靠 1.3 的模板设计和 1.4 的人工审计保证，因此最后一条留到 1.4 完成后再勾。
 
@@ -286,14 +286,16 @@ PY
 
 ### 1.4 人工审计（60 条）
 
-- [ ] 从每种行为、每个域和安全标签**分层**抽取共 60 条（安全类别不得低于 15 条，knowledge 域不得低于 15 条）；
-- [ ] 审计工具选择、参数、确认语义、自然度、PII 和安全标签；
-- [ ] 特别检查：知识域样本的工具选择是否与 `rag-agent-platform` 的实际行为一致（对比类问题才用 `question_decompose_tool`）；
-- [ ] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；
-- [ ] 修复规则后重新生成全部 split，不直接手改测试答案；
-- [ ] 在 `reports/data_audit_v1.md` 记录审计数量、错误数量、修复和剩余边界。
+- [x] 从每种行为、每个域和安全标签**分层**抽取共 60 条（安全类别不得低于 15 条，knowledge 域不得低于 15 条）；
+- [x] 审计工具选择、参数、确认语义、自然度、PII 和安全标签；
+- [x] 特别检查：知识域样本的工具选择是否与 `rag-agent-platform` 的实际行为一致（对比类问题才用 `question_decompose_tool`）；
+- [x] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；
+- [x] 修复规则后重新生成全部 split，不直接手改测试答案；
+- [x] 在 `reports/data_audit_v1.md` 记录审计数量、错误数量、修复和剩余边界。
 
 > 60 条只减少抽样量，不放松分层结构和修复流程——审计的价值在于"发现了什么并改了规则"，不在于条数。
+
+> **审计人独立性不足。** 本轮由编写模板的同一方执行，10 条缺陷全部落在 `template` 类、`label` 类为 0——这个分布更可能反映审计盲区，而非规则完美。阶段 C 的错误分析必须把"数据标签本身可能有误"列为候选归因，不得默认数据为真。详见 `reports/data_audit_v1.md` 第 4 节。
 
 ### 1.5 原始模型 baseline（一步不省）
 
