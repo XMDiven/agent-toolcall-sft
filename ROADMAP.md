@@ -301,13 +301,13 @@ PY
 
 **这是整个项目的价值支点。没有冻结基线，后面所有数字都不可信。**
 
-- [ ] 固定 Qwen3 官方 Hermes 风格工具调用模板；
-- [ ] 固定解码：greedy 或 temperature 0、固定最大输出 token；
-- [ ] 在训练前对 `Qwen/Qwen3-1.7B` 跑完整 500 条测试集；
-- [ ] 保存逐样本预测、解析错误、延迟和显存；
-- [ ] 基线报告必须同时给出 knowledge 子集、support 子集与整体三组指标；
-- [ ] 生成 `reports/baseline_qwen3_1_7b.md`，记录模型 revision、数据 manifest hash 和环境版本；
-- [ ] baseline 产物写入只读版本目录，训练后不得覆盖。
+- [x] 固定 Qwen3 官方 Hermes 风格工具调用模板；
+- [x] 固定解码：greedy 或 temperature 0、固定最大输出 token；
+- [x] 在训练前对 `Qwen/Qwen3-1.7B` 跑完整 500 条测试集；
+- [x] 保存逐样本预测、解析错误、延迟和显存；
+- [x] 基线报告必须同时给出 knowledge 子集、support 子集与整体三组指标；
+- [x] 生成 `reports/baseline_qwen3_1_7b.md`，记录模型 revision、数据 manifest hash 和环境版本；
+- [x] baseline 产物写入只读版本目录，训练后不得覆盖。
 
 建议提交：`eval: freeze Qwen3 1.7B baseline`
 

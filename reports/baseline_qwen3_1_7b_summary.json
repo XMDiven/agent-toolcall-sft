@@ -1,0 +1,114 @@
+{
+  "confusion": {
+    "clarify": {
+      "clarify": 54,
+      "direct_answer": 4,
+      "tool_call": 37
+    },
+    "direct_answer": {
+      "clarify": 23,
+      "direct_answer": 43,
+      "unparsed": 1
+    },
+    "handoff": {
+      "clarify": 36,
+      "direct_answer": 12,
+      "handoff": 44,
+      "tool_call": 4,
+      "unparsed": 1
+    },
+    "tool_call": {
+      "clarify": 51,
+      "direct_answer": 43,
+      "handoff": 10,
+      "tool_call": 72,
+      "unparsed": 65
+    }
+  },
+  "environment": {
+    "decoding": {
+      "do_sample": false,
+      "enable_thinking": false,
+      "max_new_tokens": 256,
+      "num_beams": 1
+    },
+    "decoding_version": "v1",
+    "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+    "model_id": "/home/mdiven/models/Qwen3-1.7B",
+    "peak_vram_gib": 3.326,
+    "prompt_version": "v1",
+    "torch": "2.12.1+cu130"
+  },
+  "latency": {
+    "mean_ms": 1361.32,
+    "p50_ms": 1242.7,
+    "p95_ms": 2185.0
+  },
+  "metrics": {
+    "knowledge": {
+      "accuracy_by_expected_action": {
+        "tool_call": 0.0
+      },
+      "action_accuracy": 0.0,
+      "argument_exact_match": 0.0,
+      "argument_match_ignoring_edge_punctuation": 0.0,
+      "dangerous_write_misuse_rate": 0.0,
+      "json_valid_rate": 1.0,
+      "n": 110,
+      "off_menu_call_rate": 0.0,
+      "schema_valid_rate": 0.7364,
+      "tool_name_accuracy": 0.0
+    },
+    "overall": {
+      "accuracy_by_expected_action": {
+        "clarify": 0.5684,
+        "direct_answer": 0.6418,
+        "handoff": 0.4536,
+        "tool_call": 0.2988
+      },
+      "action_accuracy": 0.426,
+      "argument_exact_match": 0.1701,
+      "argument_match_ignoring_edge_punctuation": 0.1701,
+      "dangerous_write_misuse_rate": 0.0753,
+      "json_valid_rate": 0.996,
+      "n": 500,
+      "off_menu_call_rate": 0.0,
+      "schema_valid_rate": 0.866,
+      "tool_name_accuracy": 0.2863
+    },
+    "support": {
+      "accuracy_by_expected_action": {
+        "clarify": 0.5684,
+        "direct_answer": 0.6418,
+        "handoff": 0.4536,
+        "tool_call": 0.5496
+      },
+      "action_accuracy": 0.5462,
+      "argument_exact_match": 0.313,
+      "argument_match_ignoring_edge_punctuation": 0.313,
+      "dangerous_write_misuse_rate": 0.0986,
+      "json_valid_rate": 0.9949,
+      "n": 390,
+      "off_menu_call_rate": 0.0,
+      "schema_valid_rate": 0.9026,
+      "tool_name_accuracy": 0.5267
+    }
+  },
+  "records": 500,
+  "schema_errors": {
+    "Expecting ',' delimiter: line 1 column 282 (char 281)": 1,
+    "Input should be 'damaged_item', 'wrong_item', 'not_received', 'quality_issue' or 'changed_mind'": 1,
+    "Input tag 'check_refund_eligibility' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 4,
+    "Input tag 'create_support_ticket' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 15,
+    "Input tag 'get_order_status' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 16,
+    "Input tag 'question_decompose_tool' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 11,
+    "Input tag 'retrieval_tool' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 4,
+    "Input tag 'summary_tool' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 14,
+    "no JSON object": 1
+  },
+  "split": "data/processed/test.jsonl",
+  "tokens": {
+    "completion_mean": 36.1,
+    "prompt_mean": 512.6
+  }
+}

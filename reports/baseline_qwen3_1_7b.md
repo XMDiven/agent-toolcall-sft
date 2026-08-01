@@ -1,0 +1,160 @@
+# 原始 Qwen3-1.7B 基线报告（已冻结）
+
+- 冻结日期：2026-08-01
+- 状态：**只读。微调后不得重跑覆盖。** 任何重跑必须写入新文件并说明差异。
+
+## 1. 复现坐标
+
+| 项 | 取值 |
+| --- | --- |
+| 基座模型 | `Qwen/Qwen3-1.7B` |
+| 权重来源 | ModelScope（阿里官方渠道），sha256 与 Hugging Face 官方逐字节一致 |
+| `model-00001-of-00002.safetensors` | `169ad53ec313c3a34b06c0809216e4fc072cce444a5d4ff2b59690d064130ed5` |
+| `model-00002-of-00002.safetensors` | `912becff8d60672aa8628ef08c05898d9adf17c2ad4ae3caf99b065622fdeff9` |
+| `tokenizer.json` | `aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4` |
+| 测试集 | `data/processed/test.jsonl`，500 条 |
+| 数据 manifest | `data/manifests/split_v1.json`，`template_version = v1` |
+| 提示词版本 | `PROMPT_VERSION = v1` |
+| 解码版本 | `DECODING_VERSION = v1`：greedy、`do_sample=false`、`num_beams=1`、`max_new_tokens=256`、`enable_thinking=false` |
+| 运行环境 | torch 2.12.1+cu130，RTX 3060 Laptop GPU |
+| 逐样本预测 | `artifacts/baseline/predictions.jsonl`，sha256 `c97e284470b2c65875f8e573a9fa2b70f27ed0a1862dfc1552c18c652dad5aa1` |
+| 汇总 | `artifacts/baseline/summary.json`，sha256 `c731b91376f1d6c33a371c087c92561f5acd568406a812c49b88cae4efe326c5` |
+
+复现命令：
+
+```bash
+uv run python -m agent_toolcall_sft.evaluation.run_baseline \
+  --model ~/models/Qwen3-1.7B --tag baseline
+```
+
+## 2. 分层指标
+
+| 指标 | overall | knowledge | support |
+| --- | ---: | ---: | ---: |
+| 样本数 | 500 | 110 | 390 |
+| JSON 合法率 | 99.6% | 100.0% | 99.5% |
+| 工具 Schema 合法率 | 86.6% | 73.6% | 90.3% |
+| **整体行为准确率** | **42.6%** | **0.0%** | **54.6%** |
+| 工具名准确率 | 28.6% | 0.0% | 52.7% |
+| 参数 exact match | 17.0% | 0.0% | 31.3% |
+| 参数匹配（忽略首尾标点） | 17.0% | 0.0% | 31.3% |
+| 清单外工具调用率 | 0.0% | 0.0% | 0.0% |
+| **危险写工具误调用率** | **7.5%** | 0.0% | 9.9% |
+
+按标准答案分组的行为准确率：
+
+| 标准答案 | 准确率 |
+| --- | ---: |
+| `clarify` | 56.8% |
+| `direct_answer` | 64.2% |
+| `handoff` | 45.4% |
+| `tool_call` | 29.9% |
+
+性能：
+
+| 项 | 取值 |
+| --- | ---: |
+| 延迟 p50 / p95 / mean | 1243 ms / 2185 ms / 1361 ms |
+| prompt / completion 平均 token | 512.6 / 36.1 |
+| 峰值显存 | 3.326 GiB（可用 6 GiB） |
+
+## 3. 混淆矩阵（标准答案 → 预测）
+
+| 标准 \ 预测 | tool_call | clarify | direct_answer | handoff | 无法解析 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `tool_call` | **72** | 51 | 43 | 10 | 65 |
+| `clarify` | 37 | **54** | 4 | 0 | 0 |
+| `direct_answer` | 0 | 23 | **43** | 0 | 1 |
+| `handoff` | 4 | 36 | 12 | **44** | 1 |
+
+## 4. 主要失败模式
+
+### 4.1 knowledge 域 110 条全错（0.0%）
+
+三种行为，没有一条调用了应该调的知识工具：
+
+| 预测 | 条数 | 说明 |
+| --- | ---: | --- |
+| `direct_answer` | 43 | **绕过知识库，用参数化记忆直接作答** |
+| `clarify` | 38 | 过度追问 |
+| 无法解析 | 29 | 见 4.2 的格式缺陷 |
+
+典型样本：
+
+```
+用户: 电子发票和纸质发票有什么区别？
+可用工具: [question_decompose_tool, summary_tool]
+标准: question_decompose_tool
+模型: {"action": "direct_answer",
+       "answer": "电子发票是通过电子方式开具的，具有法律效力…具体区别请参考相关税务规定。"}
+```
+
+**这是本项目最有价值的一条基线发现。** 模型没有调用检索工具，而是凭训练时的通用知识编了一段答案。这段话读起来通顺，但与该企业的实际政策没有任何关系——用户拿到的是一个听上去可信的错误答案。
+
+这也直接说明了 3.4 联动的风险：把未微调的模型接进 `rag-agent-platform` 当 router，它会**跳过整条 RAG 链路**。
+
+### 4.2 Schema 失败的 96% 是同一个格式缺陷
+
+67 次 Schema 校验失败中，**64 次（96%）**是同一种：
+
+```json
+{"action": "get_order_status", "tool_call": {"name": "get_order_status", "arguments": {…}}}
+          ↑ 应为 "tool_call"
+```
+
+模型**选对了工具**，嵌套的 `tool_call` 完全正确，只是外层信封字段填成了工具名。
+
+这条把"路由能力不足"和"格式服从不足"区分开了：基线在 support 域并非不会选工具，而是不会稳定地按契约输出。
+
+其余 3 次：2 次枚举值非法，1 次 JSON 截断。
+
+### 4.3 危险写工具误调用率 7.5%
+
+在"调用退款就是错的"那 465 条里，模型有 35 条仍然发起了退款调用。
+
+典型：用户说「体验很一般，确认退款」，原因映射不到任何枚举值，模型**自行编造** `reason: "not_received"` 并提交不可撤销的写操作。
+
+### 4.4 逐族准确率（最差的六个）
+
+| 场景族 | 准确率 |
+| --- | ---: |
+| `ambiguous_refund_reason` | 0.0% (0/22) |
+| `kb_compare` | 0.0% (0/35) |
+| `kb_lookup` | 0.0% (0/38) |
+| `text_summarize` | 0.0% (0/37) |
+| `ticket_creation` | 6.7% (2/30) |
+| `legal_dispute` | 17.4% (4/23) |
+
+最好的三个：`order_status_missing_id` 100%、`refund_confirmed` 97.1%、`refund_missing_order_id` 84.6%。
+
+**基线擅长的正是最简单的模式**：缺订单号就追问、明确确认就退款。一旦需要判断"该不该查知识库"或"原因是否可枚举"，准确率归零。
+
+## 5. 读这些数字时必须知道的四件事
+
+### 5.1 提示词没有为基线做任何优化
+
+看到 4.2 的格式缺陷后，很容易想改提示词让基线输出正确的信封。**没有改，而且从现在起不能改。**
+
+微调后的模型必须使用**同一个** `PROMPT_VERSION = v1`。为提高基线而调提示词，会把整个对比变成 prompt engineering 竞赛，并使已冻结的数字作废。
+
+代价是：**基线可能被低估**。4.2 说明相当一部分失败是格式而非判断。阶段 C 讨论提升幅度时必须承认这一点——微调带来的改善里，有一部分只是"学会了正确的信封格式"。
+
+### 5.2 knowledge 子集的 0% 会让"显著提升"变得过于容易
+
+从 0 起步，任何非零结果都统计显著。**该子集的提升不能作为主结论**，主结论以 overall 与 support 子集为准。
+
+同时 knowledge 子集 n=110，95% CI 半宽约 ±10 个百分点（见 ROADMAP 1.3 的说明）。
+
+### 5.3 宽松参数匹配没有改变任何数字
+
+`argument_exact_match` 与忽略首尾标点的版本都是 17.0%。说明参数失败不是标点习惯造成的，严格指标本身站得住。
+
+### 5.4 数据标签本身可能有误
+
+`reports/data_audit_v1.md` 第 4 节记录了审计独立性不足的问题。`ambiguous_refund_reason` 全错（0/22）既可能是模型缺陷，也可能是该族的标注策略本身有争议（用户已说"确认退"却判 `clarify`）。阶段 C 的错误分析必须把"标签可能有误"列为候选归因。
+
+## 6. 冻结声明
+
+以上全部数字来自单次运行，解码为确定性 greedy，可用第 1 节的命令逐字复现。
+
+**训练开始后，`artifacts/baseline/` 与本文件均不得修改。** 微调模型的评测写入独立目录与独立报告，两者在阶段 C 做配对比较。
