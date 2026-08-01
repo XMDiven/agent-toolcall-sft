@@ -3,13 +3,25 @@ import re
 
 import pytest
 
-from agent_toolcall_sft.contracts import ALL_TOOL_NAMES, ORDER_ID_PATTERN
+from agent_toolcall_sft.contracts import (
+    ALL_TOOL_NAMES,
+    KNOWLEDGE_TOOL_NAMES,
+    ORDER_ID_PATTERN,
+    SUPPORT_TOOL_NAMES,
+)
 from agent_toolcall_sft.data.generation import (
+    KNOWLEDGE_FAMILIES,
     REFUND_CONFIRMED,
     TEMPLATE_VERSION,
     generate_family,
     offer_tools,
 )
+
+EXPECTED_KNOWLEDGE_TOOL = {
+    "kb_lookup": "retrieval_tool",
+    "kb_compare": "question_decompose_tool",
+    "text_summarize": "summary_tool",
+}
 
 
 @pytest.fixture
@@ -84,3 +96,49 @@ def test_order_id_is_not_always_at_the_same_position():
         for record in records
     }
     assert len(positions) >= 4
+
+
+@pytest.fixture(params=KNOWLEDGE_FAMILIES, ids=lambda family: family.name)
+def knowledge_records(request):
+    return request.param, generate_family(request.param, count=200, seed_base=3000)
+
+
+def test_knowledge_family_targets_its_platform_tool(knowledge_records):
+    family, records = knowledge_records
+    expected = EXPECTED_KNOWLEDGE_TOOL[family.name]
+    for record in records:
+        assert record.domain == "knowledge"
+        assert record.expected_action == "tool_call"
+        assert record.expected_tool_call.name == expected
+
+
+def test_knowledge_argument_appears_verbatim_in_the_message(knowledge_records):
+    """Exact-match scoring only means something if the target is quotable."""
+    _, records = knowledge_records
+    for record in records:
+        arguments = record.expected_tool_call.arguments.model_dump()
+        core = next(iter(arguments.values()))
+        assert core in record.messages[0].content
+
+
+def test_knowledge_family_emits_platform_only_tool_lists(knowledge_records):
+    _, records = knowledge_records
+    platform_only = [r for r in records if set(r.tools) <= KNOWLEDGE_TOOL_NAMES]
+    assert platform_only, "no subset-routing samples were produced"
+
+    for record in platform_only:
+        assert not set(record.tools) & SUPPORT_TOOL_NAMES
+
+
+def test_knowledge_family_is_reproducible(knowledge_records):
+    family, records = knowledge_records
+    assert generate_family(family, count=200, seed_base=3000) == records
+
+
+def test_offer_tools_respects_a_narrowed_pool():
+    for seed in range(20):
+        tools = offer_tools(
+            random.Random(seed), "retrieval_tool", pool=KNOWLEDGE_TOOL_NAMES
+        )
+        assert set(tools) <= KNOWLEDGE_TOOL_NAMES
+        assert "retrieval_tool" in tools
