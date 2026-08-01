@@ -14,6 +14,7 @@ from agent_toolcall_sft.evaluation.scoring import (
     aggregate,
     aggregate_by_domain,
     confusion,
+    schema_error_taxonomy,
     score_record,
 )
 
@@ -329,3 +330,77 @@ def test_confusion_table_records_unparsed_predictions(mixed_scores):
     table = confusion(mixed_scores)
     assert table["clarify"] == {"unparsed": 1}
     assert table["tool_call"] == {"tool_call": 2}
+
+
+# ---------------------------------------------------------------------------
+# Argument normalisation
+# ---------------------------------------------------------------------------
+
+
+def test_trailing_punctuation_misses_exact_match_but_not_the_lenient_one():
+    """The model copies the user's "？"; that is not a content error."""
+    record = make_record(
+        domain="knowledge",
+        tools=sorted(KNOWLEDGE_TOOL_NAMES),
+        expected_decision={
+            "action": "tool_call",
+            "tool_call": {
+                "name": "retrieval_tool",
+                "arguments": {"question": "退货政策是什么"},
+            },
+        },
+    )
+    raw = json.dumps(
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "retrieval_tool",
+                "arguments": {"question": "退货政策是什么？"},
+            },
+        }
+    )
+    score = score_record(record, raw)
+
+    assert score.tool_name_correct
+    assert not score.arguments_exact
+    assert score.arguments_normalized
+
+
+def test_a_different_answer_fails_both_argument_metrics():
+    record = make_record(
+        domain="knowledge",
+        tools=sorted(KNOWLEDGE_TOOL_NAMES),
+        expected_decision={
+            "action": "tool_call",
+            "tool_call": {
+                "name": "retrieval_tool",
+                "arguments": {"question": "退货政策是什么"},
+            },
+        },
+    )
+    raw = json.dumps(
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "retrieval_tool",
+                "arguments": {"question": "保修期是多久"},
+            },
+        }
+    )
+    score = score_record(record, raw)
+
+    assert not score.arguments_exact
+    assert not score.arguments_normalized
+
+
+def test_schema_errors_are_grouped_by_reason():
+    record = make_record()
+    scores = [
+        score_record(record, '{"action": "get_order_status", "tool_call": {}}'),
+        score_record(record, '{"action": "get_order_status", "tool_call": {}}'),
+        score_record(record, "完全不是 JSON"),
+    ]
+    taxonomy = schema_error_taxonomy(scores)
+
+    assert sum(taxonomy.values()) == 3
+    assert len(taxonomy) == 2

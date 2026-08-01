@@ -1,6 +1,9 @@
 """Tests for the parts of the runner that do not need a GPU or a model."""
 
-from agent_toolcall_sft.evaluation.run_baseline import summarise_latency
+from agent_toolcall_sft.evaluation.run_baseline import (
+    stride_sample,
+    summarise_latency,
+)
 from agent_toolcall_sft.evaluation.runner import DECODING, DECODING_VERSION
 
 
@@ -25,3 +28,16 @@ def test_latency_summary_handles_a_single_sample():
         "p95_ms": 42.0,
         "mean_ms": 42.0,
     }
+
+
+def test_stride_sample_spreads_across_the_split():
+    """The first N records all share a family; a smoke test must not."""
+    records = list(range(100))
+    picked = stride_sample(records, 10)
+
+    assert len(picked) == 10
+    assert picked == [0, 10, 20, 30, 40, 50, 60, 70, 80, 90]
+
+
+def test_stride_sample_returns_everything_when_limit_exceeds_size():
+    assert stride_sample([1, 2, 3], 10) == [1, 2, 3]

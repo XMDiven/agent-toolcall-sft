@@ -23,11 +23,27 @@ from agent_toolcall_sft.evaluation.runner import (
 from agent_toolcall_sft.evaluation.scoring import (
     aggregate_by_domain,
     confusion,
+    schema_error_taxonomy,
     score_record,
 )
 
 DEFAULT_MODEL = "Qwen/Qwen3-1.7B"
 DEFAULT_SPLIT = Path("data/processed/test.jsonl")
+
+
+def stride_sample(records: list, limit: int) -> list:
+    """Take an evenly spaced subset instead of the first N.
+
+    The split is sorted by id, so the first N records all come from one
+    family. A smoke test drawn that way exercises one scenario and hides
+    whatever breaks in the other eighteen.
+    """
+    if limit >= len(records):
+        return records
+
+    step = len(records) / limit
+
+    return [records[int(index * step)] for index in range(limit)]
 
 
 def summarise_latency(latencies: list[float]) -> dict:
@@ -50,7 +66,7 @@ def main() -> None:
 
     records = read_records(args.split)
     if args.limit:
-        records = records[: args.limit]
+        records = stride_sample(records, args.limit)
     print(f"loaded {len(records)} records from {args.split}")
 
     model, tokenizer = load_model(args.model)
@@ -101,6 +117,7 @@ def main() -> None:
         },
         "metrics": aggregate_by_domain(scores),
         "confusion": confusion(scores),
+        "schema_errors": schema_error_taxonomy(scores),
     }
     (destination / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
