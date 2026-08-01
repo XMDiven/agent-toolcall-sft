@@ -5,7 +5,7 @@ The three knowledge tools mirror rag-agent-platform's tool registry
 decision produced here can be dispatched by that platform unchanged.
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
@@ -128,6 +128,21 @@ ToolCall = Annotated[
 KNOWLEDGE_TOOL_NAMES = frozenset(
     {"retrieval_tool", "summary_tool", "question_decompose_tool"}
 )
+
+def _tool_call_members() -> tuple[type[BaseModel], ...]:
+    return get_args(get_args(ToolCall)[0])
+
+
+def _discriminator_value(member: type[BaseModel]) -> str:
+    return get_args(member.model_fields["name"].annotation)[0]
+
+
+# Derived from the union rather than hand-listed, so a tool added above cannot
+# be missed by the prompt renderer or by the name sets below.
+TOOL_ARGUMENT_MODELS: dict[str, type[BaseModel]] = {
+    _discriminator_value(member): member.model_fields["arguments"].annotation
+    for member in _tool_call_members()
+}
 
 SUPPORT_TOOL_NAMES = frozenset(
     {
