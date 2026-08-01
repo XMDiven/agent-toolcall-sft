@@ -24,6 +24,7 @@ from agent_toolcall_sft.data.generation import (
     offer_idle_tools,
     offer_tools,
     synthetic_order_id,
+    template_key,
     wrap,
 )
 
@@ -106,16 +107,18 @@ _REFUND_SENTENCES: tuple[str, ...] = (
 def _draft_refund_confirmed(rng: random.Random) -> RecordDraft:
     order_id = synthetic_order_id(rng)
     reason = rng.choice(sorted(_REFUND_COMPLAINTS))
+    complaint = rng.choice(_REFUND_COMPLAINTS[reason])
     sentence = wrap(
         rng,
         _REFUND_SENTENCES,
         order_id=order_id,
-        complaint=rng.choice(_REFUND_COMPLAINTS[reason]),
+        complaint=complaint,
         confirmation=rng.choice(_CONFIRMATIONS),
     )
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("refund_confirmed", complaint),
         tools=offer_tools(rng, "create_refund_request"),
         expected_decision={
             "action": "tool_call",
@@ -186,15 +189,17 @@ _ELIGIBILITY_SENTENCES: tuple[str, ...] = (
 def _draft_refund_eligibility_check(rng: random.Random) -> RecordDraft:
     order_id = synthetic_order_id(rng)
     reason = rng.choice(sorted(_REFUND_COMPLAINTS))
+    complaint = rng.choice(_REFUND_COMPLAINTS[reason])
     sentence = wrap(
         rng,
         _ELIGIBILITY_SENTENCES,
         order_id=order_id,
-        complaint=rng.choice(_REFUND_COMPLAINTS[reason]),
+        complaint=complaint,
     )
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("refund_eligibility_check", complaint),
         tools=offer_tools(rng, "check_refund_eligibility"),
         expected_decision={
             "action": "tool_call",
@@ -260,6 +265,7 @@ def _draft_ticket_creation(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("ticket_creation", core),
         tools=offer_tools(rng, "create_support_ticket"),
         expected_decision={
             "action": "tool_call",
@@ -333,6 +339,7 @@ def _draft_kb_lookup(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("kb_lookup", core),
         tools=offer_tools(rng, "retrieval_tool", pool=knowledge_only_pool(rng)),
         expected_decision={
             "action": "tool_call",
@@ -387,7 +394,10 @@ def _draft_kb_compare(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
-        tools=offer_tools(rng, "question_decompose_tool", pool=knowledge_only_pool(rng)),
+        template_key=template_key("kb_compare", core),
+        tools=offer_tools(
+            rng, "question_decompose_tool", pool=knowledge_only_pool(rng)
+        ),
         expected_decision={
             "action": "tool_call",
             "tool_call": {
@@ -490,6 +500,7 @@ def _draft_text_summarize(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("text_summarize", core),
         tools=offer_tools(rng, "summary_tool", pool=knowledge_only_pool(rng)),
         expected_decision={
             "action": "tool_call",
@@ -529,12 +540,12 @@ _ASK_FOR_ORDER_ID = "请提供需要处理的订单号。"
 
 
 def _draft_refund_missing_order_id(rng: random.Random) -> RecordDraft:
-    sentence = compose(
-        rng, rng.choice(_MISSING_ID_REFUND), _POLITE_OPENERS, _REQUEST_CLOSERS
-    )
+    core = rng.choice(_MISSING_ID_REFUND)
+    sentence = compose(rng, core, _POLITE_OPENERS, _REQUEST_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("refund_missing_order_id", core),
         tools=offer_tools(rng, "create_refund_request"),
         expected_decision={"action": "clarify", "question": _ASK_FOR_ORDER_ID},
         safety_tags=["missing_parameter", "write_tool_withheld"],
@@ -561,15 +572,17 @@ _ASK_FOR_CONFIRMATION = "退款提交后不可撤销，请确认是否现在为�
 
 def _draft_refund_missing_confirmation(rng: random.Random) -> RecordDraft:
     reason = rng.choice(sorted(_REFUND_COMPLAINTS))
+    complaint = rng.choice(_REFUND_COMPLAINTS[reason])
     sentence = wrap(
         rng,
         _UNCONFIRMED_SENTENCES,
         order_id=synthetic_order_id(rng),
-        complaint=rng.choice(_REFUND_COMPLAINTS[reason]),
+        complaint=complaint,
     )
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("refund_missing_confirmation", complaint),
         tools=offer_tools(rng, "create_refund_request"),
         expected_decision={"action": "clarify", "question": _ASK_FOR_CONFIRMATION},
         safety_tags=["missing_confirmation", "write_tool_withheld"],
@@ -602,12 +615,12 @@ _MISSING_ID_STATUS: tuple[str, ...] = (
 
 
 def _draft_order_status_missing_id(rng: random.Random) -> RecordDraft:
-    sentence = compose(
-        rng, rng.choice(_MISSING_ID_STATUS), _POLITE_OPENERS, _REQUEST_CLOSERS
-    )
+    core = rng.choice(_MISSING_ID_STATUS)
+    sentence = compose(rng, core, _POLITE_OPENERS, _REQUEST_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("order_status_missing_id", core),
         tools=offer_tools(rng, "get_order_status"),
         expected_decision={"action": "clarify", "question": _ASK_FOR_ORDER_ID},
         safety_tags=["missing_parameter"],
@@ -641,15 +654,17 @@ _ASK_FOR_REASON = "请说明具体的退款原因，例如商品损坏、发错�
 
 
 def _draft_ambiguous_refund_reason(rng: random.Random) -> RecordDraft:
+    complaint = rng.choice(_VAGUE_COMPLAINTS)
     sentence = wrap(
         rng,
         _VAGUE_SENTENCES,
         order_id=synthetic_order_id(rng),
-        complaint=rng.choice(_VAGUE_COMPLAINTS),
+        complaint=complaint,
     )
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("ambiguous_refund_reason", complaint),
         tools=offer_tools(rng, "create_refund_request"),
         expected_decision={"action": "clarify", "question": _ASK_FOR_REASON},
         safety_tags=["ambiguous_parameter", "write_tool_withheld"],
@@ -693,6 +708,7 @@ def _draft_greeting(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("greeting", prompt),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "direct_answer", "answer": answer},
         safety_tags=["no_tool_needed"],
@@ -730,6 +746,7 @@ def _draft_capability_question(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("capability_question", prompt),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "direct_answer", "answer": answer},
         safety_tags=["no_tool_needed"],
@@ -767,6 +784,7 @@ def _draft_chitchat_closing(rng: random.Random) -> RecordDraft:
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("chitchat_closing", prompt),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "direct_answer", "answer": answer},
         safety_tags=["no_tool_needed"],
@@ -803,12 +821,12 @@ _COMPLAINT_REASON = "用户情绪强烈并要求赔偿或投诉升级，超出�
 
 
 def _draft_strong_complaint(rng: random.Random) -> RecordDraft:
-    sentence = compose(
-        rng, rng.choice(_STRONG_COMPLAINTS), _ANGRY_OPENERS, _ANGRY_CLOSERS
-    )
+    core = rng.choice(_STRONG_COMPLAINTS)
+    sentence = compose(rng, core, _ANGRY_OPENERS, _ANGRY_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("strong_complaint", core),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "handoff", "reason": _COMPLAINT_REASON},
         safety_tags=["escalation", "high_risk"],
@@ -843,10 +861,12 @@ _OUT_OF_SCOPE_REASON = "该请求不属于本客服系统的业务范围，需�
 
 
 def _draft_out_of_scope(rng: random.Random) -> RecordDraft:
-    sentence = compose(rng, rng.choice(_OUT_OF_SCOPE), _POLITE_OPENERS, _POLITE_CLOSERS)
+    core = rng.choice(_OUT_OF_SCOPE)
+    sentence = compose(rng, core, _POLITE_OPENERS, _POLITE_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("out_of_scope", core),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "handoff", "reason": _OUT_OF_SCOPE_REASON},
         safety_tags=["out_of_scope"],
@@ -877,10 +897,12 @@ _LEGAL_REASON = "涉及人身伤害或法律纠纷，必须由人工与法务介
 
 
 def _draft_legal_dispute(rng: random.Random) -> RecordDraft:
-    sentence = compose(rng, rng.choice(_LEGAL_DISPUTES), _ANGRY_OPENERS, _ANGRY_CLOSERS)
+    core = rng.choice(_LEGAL_DISPUTES)
+    sentence = compose(rng, core, _ANGRY_OPENERS, _ANGRY_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("legal_dispute", core),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "handoff", "reason": _LEGAL_REASON},
         safety_tags=["escalation", "high_risk", "legal"],
@@ -917,10 +939,12 @@ _INJECTION_REASON = "用户试图覆盖系统工具规则或绕过确认流程�
 
 
 def _draft_prompt_injection(rng: random.Random) -> RecordDraft:
-    sentence = compose(rng, rng.choice(_INJECTIONS), _DEMAND_OPENERS, _DEMAND_CLOSERS)
+    core = rng.choice(_INJECTIONS)
+    sentence = compose(rng, core, _DEMAND_OPENERS, _DEMAND_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("prompt_injection", core),
         tools=offer_tools(rng, "create_refund_request"),
         expected_decision={"action": "handoff", "reason": _INJECTION_REASON},
         safety_tags=["prompt_injection", "write_tool_withheld", "high_risk"],
@@ -953,10 +977,12 @@ _ESCALATION_REASON = "请求越权访问他人数据或系统凭据，已拒绝�
 
 
 def _draft_privilege_escalation(rng: random.Random) -> RecordDraft:
-    sentence = compose(rng, rng.choice(_ESCALATIONS), _DEMAND_OPENERS, _DEMAND_CLOSERS)
+    core = rng.choice(_ESCALATIONS)
+    sentence = compose(rng, core, _DEMAND_OPENERS, _DEMAND_CLOSERS)
 
     return RecordDraft(
         messages=[{"role": "user", "content": sentence}],
+        template_key=template_key("privilege_escalation", core),
         tools=offer_idle_tools(rng, pool=knowledge_only_pool(rng)),
         expected_decision={"action": "handoff", "reason": _ESCALATION_REASON},
         safety_tags=["privilege_escalation", "high_risk"],

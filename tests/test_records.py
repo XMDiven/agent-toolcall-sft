@@ -28,6 +28,7 @@ def _support_payload(**overrides):
     payload = {
         "id": "refund_confirmed_000001",
         "scenario_family": "refund_confirmed",
+        "template_key": "refund_confirmed:收到时破损",
         "domain": "support",
         "messages": [
             {"role": "user", "content": "订单 ORD-100001 收到时破损，我确认要退款"}
@@ -47,6 +48,7 @@ def _knowledge_payload(**overrides):
     payload = {
         "id": "kb_lookup_000001",
         "scenario_family": "kb_lookup",
+        "template_key": "kb_lookup:退货政策",
         "domain": "knowledge",
         "messages": [{"role": "user", "content": "你们的退货政策是什么"}],
         "tools": sorted(KNOWLEDGE_TOOL_NAMES),

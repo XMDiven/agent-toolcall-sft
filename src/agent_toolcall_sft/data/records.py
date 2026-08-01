@@ -48,6 +48,7 @@ class Provenance(StrictModel):
 class DatasetRecord(StrictModel):
     id: str = Field(min_length=1)
     scenario_family: str = Field(min_length=1)
+    template_key: str = Field(min_length=1)
     domain: Domain
     messages: list[Message] = Field(min_length=1)
     tools: list[str] = Field(min_length=1)

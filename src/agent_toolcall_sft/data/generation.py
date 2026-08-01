@@ -41,6 +41,15 @@ class RecordDraft:
     tools: list[str]
     expected_decision: dict
     safety_tags: list[str] = field(default_factory=list)
+    template_key: str | None = None
+    """Identifies the reusable content this record was built from.
+
+    Splitting holds whole template keys together, so a phrasing the model
+    trained on can never reappear in the test set wearing a different
+    wrapper. Leave it None when nothing in the record repeats across records
+    -- a randomised order id makes every sentence genuinely new, and pinning
+    such records into shared groups would only coarsen the split for nothing.
+    """
 
 
 @dataclass(frozen=True)
@@ -97,6 +106,11 @@ def knowledge_only_pool(rng: random.Random) -> frozenset[str]:
         return KNOWLEDGE_TOOL_NAMES
 
     return ALL_TOOL_NAMES
+
+
+def template_key(family: str, core: str, limit: int = 40) -> str:
+    """Build a readable grouping key from a family name and its content core."""
+    return f"{family}:{core[:limit]}"
 
 
 def synthetic_order_id(rng: random.Random) -> str:
@@ -167,10 +181,12 @@ def generate_family(
             continue
         seen.add(key)
 
+        record_id = f"{family.name}_{len(records):06d}"
         records.append(
             DatasetRecord(
-                id=f"{family.name}_{len(records):06d}",
+                id=record_id,
                 scenario_family=family.name,
+                template_key=draft.template_key or record_id,
                 domain=family.domain,
                 messages=draft.messages,
                 tools=draft.tools,

@@ -1,0 +1,201 @@
+{
+  "corpus_seed": 20260801,
+  "leakage": {
+    "near_duplicate_pairs": [],
+    "shared_content_hashes": {
+      "test|train": 0,
+      "test|valid": 0,
+      "train|valid": 0
+    },
+    "shared_normalized_hashes": {
+      "test|train": 0,
+      "test|valid": 0,
+      "train|valid": 0
+    },
+    "shared_scenario_families": {
+      "test|train": [
+        "ambiguous_refund_reason",
+        "capability_question",
+        "chitchat_closing",
+        "greeting",
+        "kb_compare",
+        "kb_lookup",
+        "legal_dispute",
+        "order_status_lookup",
+        "order_status_missing_id",
+        "out_of_scope",
+        "privilege_escalation",
+        "prompt_injection",
+        "refund_confirmed",
+        "refund_eligibility_check",
+        "refund_missing_confirmation",
+        "refund_missing_order_id",
+        "strong_complaint",
+        "text_summarize",
+        "ticket_creation"
+      ],
+      "test|valid": [
+        "ambiguous_refund_reason",
+        "capability_question",
+        "chitchat_closing",
+        "greeting",
+        "kb_compare",
+        "kb_lookup",
+        "legal_dispute",
+        "order_status_lookup",
+        "order_status_missing_id",
+        "out_of_scope",
+        "privilege_escalation",
+        "prompt_injection",
+        "refund_confirmed",
+        "refund_eligibility_check",
+        "refund_missing_confirmation",
+        "refund_missing_order_id",
+        "strong_complaint",
+        "text_summarize",
+        "ticket_creation"
+      ],
+      "train|valid": [
+        "ambiguous_refund_reason",
+        "capability_question",
+        "chitchat_closing",
+        "greeting",
+        "kb_compare",
+        "kb_lookup",
+        "legal_dispute",
+        "order_status_lookup",
+        "order_status_missing_id",
+        "out_of_scope",
+        "privilege_escalation",
+        "prompt_injection",
+        "refund_confirmed",
+        "refund_eligibility_check",
+        "refund_missing_confirmation",
+        "refund_missing_order_id",
+        "strong_complaint",
+        "text_summarize",
+        "ticket_creation"
+      ]
+    },
+    "shared_template_keys": {
+      "test|train": [],
+      "test|valid": [],
+      "train|valid": []
+    }
+  },
+  "leakage_clean": true,
+  "split_seed": 20260801,
+  "split_unit": "template_key",
+  "splits": {
+    "test": {
+      "by_action": {
+        "clarify": 95,
+        "direct_answer": 76,
+        "handoff": 97,
+        "tool_call": 232
+      },
+      "by_domain": {
+        "knowledge": 101,
+        "support": 399
+      },
+      "by_family": {
+        "ambiguous_refund_reason": 22,
+        "capability_question": 33,
+        "chitchat_closing": 22,
+        "greeting": 21,
+        "kb_compare": 35,
+        "kb_lookup": 35,
+        "legal_dispute": 23,
+        "order_status_lookup": 31,
+        "order_status_missing_id": 24,
+        "out_of_scope": 23,
+        "privilege_escalation": 13,
+        "prompt_injection": 12,
+        "refund_confirmed": 35,
+        "refund_eligibility_check": 35,
+        "refund_missing_confirmation": 23,
+        "refund_missing_order_id": 26,
+        "strong_complaint": 26,
+        "text_summarize": 31,
+        "ticket_creation": 30
+      },
+      "count": 500,
+      "sha256": "2b222c08e482532cc5adb060bf458b36eaf82bc3a44adb38bdeceb6324b38544",
+      "template_keys": 90
+    },
+    "train": {
+      "by_action": {
+        "clarify": 405,
+        "direct_answer": 297,
+        "handoff": 400,
+        "tool_call": 898
+      },
+      "by_domain": {
+        "knowledge": 403,
+        "support": 1597
+      },
+      "by_family": {
+        "ambiguous_refund_reason": 103,
+        "capability_question": 98,
+        "chitchat_closing": 98,
+        "greeting": 101,
+        "kb_compare": 132,
+        "kb_lookup": 136,
+        "legal_dispute": 97,
+        "order_status_lookup": 125,
+        "order_status_missing_id": 101,
+        "out_of_scope": 99,
+        "privilege_escalation": 53,
+        "prompt_injection": 51,
+        "refund_confirmed": 123,
+        "refund_eligibility_check": 123,
+        "refund_missing_confirmation": 103,
+        "refund_missing_order_id": 98,
+        "strong_complaint": 100,
+        "text_summarize": 135,
+        "ticket_creation": 124
+      },
+      "count": 2000,
+      "sha256": "8fa12ee0e062cae2583444304c4c2bf7f09c6352db33988ede05ed13818fa78c",
+      "template_keys": 302
+    },
+    "valid": {
+      "by_action": {
+        "clarify": 60,
+        "direct_answer": 47,
+        "handoff": 63,
+        "tool_call": 130
+      },
+      "by_domain": {
+        "knowledge": 56,
+        "support": 244
+      },
+      "by_family": {
+        "ambiguous_refund_reason": 15,
+        "capability_question": 9,
+        "chitchat_closing": 20,
+        "greeting": 18,
+        "kb_compare": 18,
+        "kb_lookup": 19,
+        "legal_dispute": 20,
+        "order_status_lookup": 19,
+        "order_status_missing_id": 15,
+        "out_of_scope": 18,
+        "privilege_escalation": 4,
+        "prompt_injection": 7,
+        "refund_confirmed": 17,
+        "refund_eligibility_check": 17,
+        "refund_missing_confirmation": 14,
+        "refund_missing_order_id": 16,
+        "strong_complaint": 14,
+        "text_summarize": 19,
+        "ticket_creation": 21
+      },
+      "count": 300,
+      "sha256": "953868a59e4f6185353ec8469e7a1a8a7e07417eba931b3b32615af362acc3db",
+      "template_keys": 58
+    }
+  },
+  "template_version": "v1",
+  "total_records": 2800
+}
