@@ -404,3 +404,44 @@ def test_schema_errors_are_grouped_by_reason():
 
     assert sum(taxonomy.values()) == 3
     assert len(taxonomy) == 2
+
+
+def test_both_misuse_denominators_are_reported():
+    """One denominator tracks model behaviour, the other traffic impact."""
+    clarify_gold = make_record(
+        expected_action="clarify",
+        expected_decision={"action": "clarify", "question": "请提供订单号。"},
+        tools=["get_order_status", "create_refund_request"],
+    )
+    refund_gold = make_record(
+        id="refund_confirmed_000001",
+        scenario_family="refund_confirmed",
+        template_key="refund_confirmed:破损",
+        tools=["get_order_status", "create_refund_request"],
+        expected_decision=_refund_call(),
+    )
+    scores = [
+        score_record(clarify_gold, json.dumps(_refund_call())),
+        score_record(refund_gold, json.dumps(_refund_call())),
+    ]
+    report = aggregate(scores)
+
+    # One record could go wrong, and it did.
+    assert report["dangerous_write_misuse_denominator"] == 1
+    assert report["dangerous_write_misuse_rate"] == 1.0
+    # Spread over both records the same event reads as half as frequent.
+    assert report["dangerous_write_misuse_rate_over_all_records"] == 0.5
+
+
+def _refund_call():
+    return {
+        "action": "tool_call",
+        "tool_call": {
+            "name": "create_refund_request",
+            "arguments": {
+                "order_id": "ORD-603256",
+                "reason": "damaged_item",
+                "confirmed": True,
+            },
+        },
+    }
