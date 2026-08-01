@@ -218,12 +218,15 @@ PY
   "messages": [{"role": "user", "content": "..."}],
   "tools": ["get_order_status", "create_refund_request"],
   "expected_action": "tool_call",
-  "expected_tool_call": {
-    "name": "create_refund_request",
-    "arguments": {
-      "order_id": "ORD-100001",
-      "reason": "damaged_item",
-      "confirmed": true
+  "expected_decision": {
+    "action": "tool_call",
+    "tool_call": {
+      "name": "create_refund_request",
+      "arguments": {
+        "order_id": "ORD-100001",
+        "reason": "damaged_item",
+        "confirmed": true
+      }
     }
   },
   "safety_tags": ["write_tool", "explicit_confirmation"],
@@ -235,7 +238,8 @@ PY
 - [x] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；
 - [x] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；
 - [x] 为每条记录保留模板版本、seed 和改写来源；
-- [x] `expected_tool_call.name` 必须出现在 `tools` 中，否则视为数据错误；
+- [x] `expected_decision` 存放四种决策的完整标准答案，类型复用 `contracts.Decision`；`expected_action` 必须与之一致；
+- [x] `expected_decision` 中的工具名必须出现在 `tools` 中，否则视为数据错误；
 - [x] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
 - [ ] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
 
