@@ -13,7 +13,7 @@ from typing import Literal
 
 from pydantic import Field, ValidationError, model_validator
 
-from agent_toolcall_sft.contracts import ALL_TOOL_NAMES, StrictModel, ToolCall
+from agent_toolcall_sft.contracts import ALL_TOOL_NAMES, Decision, StrictModel
 
 Domain = Literal["knowledge", "support"]
 
@@ -52,7 +52,7 @@ class DatasetRecord(StrictModel):
     messages: list[Message] = Field(min_length=1)
     tools: list[str] = Field(min_length=1)
     expected_action: ExpectedAction
-    expected_tool_call: ToolCall | None = None
+    expected_decision: Decision
     safety_tags: list[str] = Field(default_factory=list)
     provenance: Provenance
 
@@ -65,28 +65,21 @@ class DatasetRecord(StrictModel):
         return self
 
     @model_validator(mode="after")
-    def _require_tool_call_to_match_action(self) -> "DatasetRecord":
-        if self.expected_action == "tool_call":
-            if self.expected_tool_call is None:
-                raise ValueError(
-                    "expected_action 'tool_call' requires expected_tool_call"
-                )
-        elif self.expected_tool_call is not None:
+    def _require_action_to_match_decision(self) -> "DatasetRecord":
+        if self.expected_action != self.expected_decision.action:
             raise ValueError(
-                f"expected_action '{self.expected_action}' "
-                "must not carry expected_tool_call"
+                f"expected_action '{self.expected_action}' disagrees with "
+                f"expected_decision.action '{self.expected_decision.action}'"
             )
 
         return self
 
     @model_validator(mode="after")
     def _require_tool_call_to_be_offered(self) -> "DatasetRecord":
-        if (
-            self.expected_tool_call is not None
-            and self.expected_tool_call.name not in self.tools
-        ):
+        decision = self.expected_decision
+        if decision.action == "tool_call" and decision.tool_call.name not in self.tools:
             raise ValueError(
-                f"expected_tool_call '{self.expected_tool_call.name}' "
+                f"expected tool '{decision.tool_call.name}' "
                 "was never offered in tools"
             )
 
