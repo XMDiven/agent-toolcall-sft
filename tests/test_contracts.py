@@ -103,6 +103,28 @@ def test_support_ticket_summary_rejects_real_pii(summary):
 
 
 @pytest.mark.parametrize(
+    "summary",
+    [
+        "11010120000307561X",
+        "身份证是11010120000307561X",
+        "证件：11010120000307561X。",
+    ],
+    ids=["whole-string", "adjacent-chinese", "adjacent-punctuation"],
+)
+def test_support_ticket_summary_rejects_identity_card_at_text_boundaries(summary):
+    with pytest.raises(ValidationError):
+        parse_decision(
+            {
+                "action": "tool_call",
+                "tool_call": {
+                    "name": "create_support_ticket",
+                    "arguments": {"summary": summary},
+                },
+            }
+        )
+
+
+@pytest.mark.parametrize(
     ("name", "argument", "text"),
     [
         ("retrieval_tool", "question", "客服电话是 13800138000 吗"),

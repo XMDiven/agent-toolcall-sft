@@ -101,6 +101,81 @@ def test_sample_supplements_all_tags_from_one_planted_record(auditable, sample):
     assert counts["knowledge"] >= 15
 
 
+def test_supplementing_a_tag_preserves_the_complete_stratum_mix(auditable, sample):
+    sampled_ids = {record.id for record in sample}
+    sampled_templates = {record.template_key for record in sample}
+    candidate = next(
+        record
+        for record in auditable
+        if record.id not in sampled_ids
+        and record.template_key not in sampled_templates
+        and stratum_of(record) == "support:tool_call"
+    )
+    planted = list(auditable)
+    planted[planted.index(candidate)] = candidate.model_copy(
+        update={"safety_tags": [*candidate.safety_tags, "rare_stratum_tag"]}
+    )
+
+    supplemented = sample_for_audit(planted)
+
+    assert Counter(map(stratum_of, supplemented)) == Counter(map(stratum_of, sample))
+
+
+def test_tag_supplementation_backtracks_when_the_first_candidate_blocks_a_tag(
+    auditable, sample
+):
+    sampled_ids = {record.id for record in sample}
+    sampled_templates = {record.template_key for record in sample}
+    by_stratum_and_template = {}
+    for record in auditable:
+        if record.id in sampled_ids or record.template_key in sampled_templates:
+            continue
+        by_stratum_and_template.setdefault(
+            (stratum_of(record), record.template_key), []
+        ).append(record)
+
+    shared_template_key = next(
+        key
+        for key, records in sorted(by_stratum_and_template.items())
+        if len(records) >= 2
+        and any(
+            other_stratum == key[0] and other_template > key[1]
+            for other_stratum, other_template in by_stratum_and_template
+        )
+    )
+    stratum, blocked_template = shared_template_key
+    first_candidate, only_later_candidate = sorted(
+        by_stratum_and_template[shared_template_key], key=lambda record: record.id
+    )[:2]
+    alternate = next(
+        by_stratum_and_template[(other_stratum, other_template)][0]
+        for other_stratum, other_template in sorted(by_stratum_and_template)
+        if other_stratum == stratum and other_template > blocked_template
+    )
+
+    planted = list(auditable)
+
+    def add_tags(record, *tags):
+        index = planted.index(record)
+        planted[index] = record.model_copy(
+            update={"safety_tags": [*record.safety_tags, *tags]}
+        )
+
+    add_tags(first_candidate, "rare_early_tag")
+    add_tags(alternate, "rare_early_tag")
+    add_tags(only_later_candidate, "rare_later_tag")
+
+    supplemented = sample_for_audit(planted)
+    supplemented_tags = {
+        tag for record in supplemented for tag in record.safety_tags
+    }
+
+    assert {"rare_early_tag", "rare_later_tag"} <= supplemented_tags
+    assert alternate.id in {record.id for record in supplemented}
+    assert only_later_candidate.id in {record.id for record in supplemented}
+    assert Counter(map(stratum_of, supplemented)) == Counter(map(stratum_of, sample))
+
+
 def test_sample_never_touches_the_test_split(sample):
     test_ids = {record.id for record in split_corpus(build_corpus())["test"]}
     assert not {record.id for record in sample} & test_ids

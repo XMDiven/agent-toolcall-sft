@@ -73,9 +73,10 @@ def sample_for_audit(
             )
         )
 
-    sample = _supplement_safety_tags(sample, records, size)
+    expected_strata = Counter(map(stratum_of, sample))
+    sample = _supplement_safety_tags(sample, records, size, expected_strata)
     sample = sorted(sample, key=lambda record: (stratum_of(record), record.id))
-    _assert_postconditions(sample, records, size)
+    _assert_postconditions(sample, records, size, expected_strata)
     return sample
 
 
@@ -83,12 +84,15 @@ def _safety_tags(records: list[DatasetRecord]) -> set[str]:
     return {tag for record in records for tag in record.safety_tags}
 
 
-def _meets_structure(sample: list[DatasetRecord], size: int) -> bool:
+def _meets_structure(
+    sample: list[DatasetRecord], size: int, expected_strata: Counter[str]
+) -> bool:
     counts = Counter(stratum_of(record) for record in sample)
     return (
         len(sample) == size
         and len({record.id for record in sample}) == size
         and len({record.template_key for record in sample}) == size
+        and counts == expected_strata
         and counts["safety"] >= FLOOR_QUOTAS["safety"]
         and counts["knowledge"] >= FLOOR_QUOTAS["knowledge"]
         and {record.domain for record in sample} == {"knowledge", "support"}
@@ -98,56 +102,77 @@ def _meets_structure(sample: list[DatasetRecord], size: int) -> bool:
 
 
 def _supplement_safety_tags(
-    sample: list[DatasetRecord], records: list[DatasetRecord], size: int
+    sample: list[DatasetRecord],
+    records: list[DatasetRecord],
+    size: int,
+    expected_strata: Counter[str],
 ) -> list[DatasetRecord]:
-    """Deterministically swap in rows carrying tags missed by stratification."""
+    """Find deterministic same-stratum swaps covering all population tags."""
     population_tags = _safety_tags(records)
-    covered_tags = _safety_tags(sample)
 
-    for missing_tag in sorted(population_tags - covered_tags):
-        if missing_tag in covered_tags:
-            continue
-
-        candidates = sorted(
-            (record for record in records if missing_tag in record.safety_tags),
+    def candidates_for(tag: str, current: list[DatasetRecord]):
+        current_ids = {record.id for record in current}
+        return sorted(
+            (
+                record
+                for record in records
+                if tag in record.safety_tags and record.id not in current_ids
+            ),
             key=lambda record: (record.template_key, record.id),
         )
-        replacements = sorted(
-            enumerate(sample),
-            key=lambda item: (stratum_of(item[1]), item[1].id),
+
+    def search(current: list[DatasetRecord]) -> list[DatasetRecord] | None:
+        covered_tags = _safety_tags(current)
+        missing_tags = population_tags - covered_tags
+        if not missing_tags:
+            return current
+
+        missing_tag = min(
+            missing_tags,
+            key=lambda tag: (len(candidates_for(tag, current)), tag),
+        )
+        for candidate in candidates_for(missing_tag, current):
+            replacements = sorted(
+                (
+                    (index, record)
+                    for index, record in enumerate(current)
+                    if stratum_of(record) == stratum_of(candidate)
+                ),
+                key=lambda item: item[1].id,
+            )
+            for index, _ in replacements:
+                trial = [*current]
+                trial[index] = candidate
+                if not _meets_structure(trial, size, expected_strata):
+                    continue
+                if not covered_tags <= _safety_tags(trial):
+                    continue
+
+                result = search(trial)
+                if result is not None:
+                    return result
+
+        return None
+
+    result = search(sample)
+    if result is None:
+        missing_tags = sorted(population_tags - _safety_tags(sample))
+        raise ValueError(
+            f"cannot cover safety tags {missing_tags} without violating "
+            "audit postconditions"
         )
 
-        for candidate in candidates:
-            if any(record.id == candidate.id for record in sample):
-                continue
-
-            for index, _ in replacements:
-                trial = [*sample]
-                trial[index] = candidate
-                required_tags = covered_tags | {missing_tag}
-                if _meets_structure(trial, size) and required_tags <= _safety_tags(
-                    trial
-                ):
-                    sample = trial
-                    covered_tags = _safety_tags(sample)
-                    break
-            else:
-                continue
-            break
-        else:
-            raise ValueError(
-                f"cannot cover safety tag {missing_tag!r} without violating "
-                "audit postconditions"
-            )
-
-    return sample
+    return result
 
 
 def _assert_postconditions(
-    sample: list[DatasetRecord], records: list[DatasetRecord], size: int
+    sample: list[DatasetRecord],
+    records: list[DatasetRecord],
+    size: int,
+    expected_strata: Counter[str],
 ) -> None:
     """Fail closed if the deterministic audit contract is not satisfied."""
-    if not _meets_structure(sample, size):
+    if not _meets_structure(sample, size, expected_strata):
         raise ValueError("audit sample violates size, diversity, or floor constraints")
 
     missing_tags = sorted(_safety_tags(records) - _safety_tags(sample))

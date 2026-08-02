@@ -4,10 +4,10 @@ from pydantic import ValidationError
 from agent_toolcall_sft.contracts import KNOWLEDGE_TOOL_NAMES
 from agent_toolcall_sft.data.records import (
     DatasetRecord,
-    contains_pii,
     read_records,
     write_records,
 )
+from agent_toolcall_sft.data.safety import contains_pii
 
 
 def _refund_decision(**argument_overrides):
@@ -161,6 +161,24 @@ def test_contains_pii_flags_real_identifiers_only():
     assert contains_pii("邮箱 someone@example.com")
     assert contains_pii("证件号 11010119900307561X")
     assert not contains_pii("订单 ORD-100001 收到时破损")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "11010120000307561X",
+        "身份证是11010120000307561X",
+        "证件：11010120000307561X。",
+    ],
+    ids=["whole-string", "adjacent-chinese", "adjacent-punctuation"],
+)
+def test_contains_pii_finds_identity_card_at_text_boundaries(text):
+    assert contains_pii(text)
+
+
+def test_contains_pii_does_not_match_inside_a_longer_digit_sequence():
+    assert not contains_pii("1101012000030756123")
+    assert not contains_pii("138001380001")
 
 
 def test_jsonl_round_trip_preserves_records(tmp_path):

@@ -3,9 +3,9 @@
 import re
 
 PII_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"1[3-9]\d{9}"),
+    re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
     re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
-    re.compile(r"\b\d{17}[\dXx]\b"),
+    re.compile(r"(?<!\d)\d{17}[\dXx](?![\dXx])"),
 )
 
 
