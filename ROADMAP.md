@@ -179,7 +179,11 @@ PY
 
 **时间预算：8–9 小时**
 
-> **证据状态：** v1 manifest、审计和 baseline 均保持不可变；baseline 的协议限制由独立 errata 说明。v1 已退出当前门禁并等待 Phase A v2 证据取代。v2 数据门禁、审计和两套基线产生新鲜证据前，本阶段所有 checkbox 保持未完成，Phase B 不得开始。
+> **证据状态：** v1 manifest 与审计保持不可变；v1 baseline 报告在冻结后只补充过一次口径说明（`f411b31`，同一份 `predictions.jsonl`，sha256 未变，未重跑模型、未重算指标），除此之外不再改动，其协议限制由独立 errata 说明。v1 已退出当前门禁并等待 Phase A v2 证据取代。
+>
+> **2026-08-01 那一轮产出的 v2 证据已撤回**，包括 `reports/baseline_qwen3_1_7b_v2.md`、`reports/baseline_qwen3_1_7b_v2_summary.json`、`reports/data_audit_v2.md` 和 `reports/data_audit_v2_sheet.md`。这些文件保留为历史记录，其中"已冻结""取代 v1"的表述不再成立，不得作为门禁依据引用；1.4 与 1.5 的同名产物仍需重新生成。
+>
+> v2 数据门禁、审计和两套基线产生新鲜证据前，本阶段所有 checkbox 保持未完成，Phase B 不得开始。
 
 ### 1.1 工具和安全契约（1.5 小时封顶）
 
@@ -310,7 +314,7 @@ PY
 - [ ] 在训练前用 `Qwen/Qwen3-1.7B` 跑完整 500 条 production JSON 主测试集，并单独跑 gold `tool_call` 的 native Hermes 辅助子集；
 - [ ] 两套 baseline 分别保存逐样本预测、解析错误、延迟、token 和显存，并写入互不覆盖的只读版本目录；
 - [ ] production 报告同时给出 knowledge、support 与 overall 三组 `action_accuracy`、`behavior_accuracy` 及其他主指标；native Hermes 报告明确子集选择规则，只报告工具名、参数、Schema、清单外调用和性能等辅助指标；
-- [ ] 生成 `reports/baseline_qwen3_1_7b_v2.md` 与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`，记录模型权重、完整 manifest、测试 split、提示词、解码和环境指纹；v1 文件保持字节不变，其限制记录在独立 errata 中。
+- [ ] 生成 `reports/baseline_qwen3_1_7b_v2.md` 与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`，记录模型权重、完整 manifest、测试 split、提示词、解码和环境指纹；v1 文件的指标不得重算，其限制记录在独立 errata 中（唯一一次冻结后改动见本阶段"证据状态"说明）。
 
 建议提交：`eval: freeze Qwen3 1.7B baseline`
 
