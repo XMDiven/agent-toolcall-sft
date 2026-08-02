@@ -18,8 +18,6 @@ from pydantic import ValidationError
 
 from agent_toolcall_sft.contracts import Decision, parse_decision
 
-_FENCE = "```"
-
 
 @dataclass(frozen=True)
 class ParseResult:
@@ -28,60 +26,86 @@ class ParseResult:
     raw: str
     json_ok: bool
     schema_ok: bool
-    raw_tool_name: str | None = None
+    raw_called_tools: tuple[str, ...] = ()
     decision: Decision | None = None
     error: str | None = None
 
+    @property
+    def raw_tool_name(self) -> str | None:
+        """Compatibility accessor for outputs with exactly one raw tool name."""
+        return self.raw_called_tools[0] if len(self.raw_called_tools) == 1 else None
+
+
+@dataclass(frozen=True)
+class _JsonCandidate:
+    start: int
+    block: str
+    complete: bool
+
+
+def _scan_json_objects(text: str, *, offset: int = 0) -> list[_JsonCandidate]:
+    """Return every outermost brace-delimited object in textual order.
+
+    Nested argument objects stay inside their parent candidate. String content,
+    escaped quotes, and escaped backslashes do not affect brace depth. An
+    unfinished final object is retained so the JSON stage can fail explicitly
+    instead of silently accepting an earlier complete decision.
+    """
+    candidates: list[_JsonCandidate] = []
+    index = 0
+    while index < len(text):
+        start = text.find("{", index)
+        if start == -1:
+            break
+
+        depth = 0
+        in_string = False
+        escaped = False
+        end = None
+        for cursor in range(start, len(text)):
+            char = text[cursor]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    end = cursor + 1
+                    break
+
+        if end is None:
+            candidates.append(
+                _JsonCandidate(offset + start, text[start:], complete=False)
+            )
+            break
+
+        candidates.append(
+            _JsonCandidate(offset + start, text[start:end], complete=True)
+        )
+        index = end
+
+    return candidates
+
 
 def extract_json_block(text: str) -> str | None:
-    """Pull the first balanced JSON object out of free-form model output.
-
-    Small models wrap their answer in prose or in a fenced code block far more
-    often than they emit bare JSON, and refusing those would measure output
-    formatting rather than routing. Brace matching is enough here because the
-    contract has no string field that may contain an unescaped brace.
-    """
-    body = text
-    if _FENCE in body:
-        segments = body.split(_FENCE)
-        for segment in segments[1:]:
-            candidate = segment.split("\n", 1)[-1] if segment[:4].isalpha() else segment
-            if "{" in candidate:
-                body = candidate
-                break
-
-    start = body.find("{")
-    if start == -1:
+    """Pull the first complete balanced JSON object from free-form text."""
+    candidates = _scan_json_objects(text)
+    if not candidates or not candidates[0].complete:
         return None
-
-    depth = 0
-    in_string = False
-    escaped = False
-    for index in range(start, len(body)):
-        char = body[index]
-
-        if in_string:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                in_string = False
-            continue
-
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return body[start : index + 1]
-
-    return None
+    return candidates[0].block
 
 
-_TOOL_CALL_TAG = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+_TOOL_CALL_TAG = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 
 
 def extract_native_tool_call(text: str) -> str | None:
@@ -91,56 +115,91 @@ def extract_native_tool_call(text: str) -> str | None:
     return match.group(1) if match else None
 
 
-def _extract_raw_tool_name(payload: dict, *, native: bool) -> str | None:
-    """Read an untrusted routing name without treating its arguments as valid."""
-    if native or ("name" in payload and "action" not in payload):
-        name = payload.get("name")
-    else:
-        tool_call = payload.get("tool_call")
-        name = tool_call.get("name") if isinstance(tool_call, dict) else None
+def _extract_candidates(raw: str) -> list[_JsonCandidate]:
+    """Collect native and ordinary objects once, preserving source order."""
+    candidates: list[_JsonCandidate] = []
+    ordinary_start = 0
+    for match in _TOOL_CALL_TAG.finditer(raw):
+        candidates.extend(
+            _scan_json_objects(
+                raw[ordinary_start : match.start()], offset=ordinary_start
+            )
+        )
+        candidates.extend(
+            _scan_json_objects(match.group(1), offset=match.start(1))
+        )
+        ordinary_start = match.end()
+    candidates.extend(_scan_json_objects(raw[ordinary_start:], offset=ordinary_start))
+    return sorted(candidates, key=lambda candidate: candidate.start)
 
-    return name if isinstance(name, str) else None
+
+def _extract_raw_tool_names(payload: dict) -> tuple[str, ...]:
+    """Read untrusted top-level and envelope routing names conservatively."""
+    names = []
+    top_level_name = payload.get("name")
+    if isinstance(top_level_name, str):
+        names.append(top_level_name)
+
+    tool_call = payload.get("tool_call")
+    nested_name = tool_call.get("name") if isinstance(tool_call, dict) else None
+    if isinstance(nested_name, str) and nested_name not in names:
+        names.append(nested_name)
+
+    return tuple(names)
+
+
+def _ordered_unique_tool_names(payloads: list[dict]) -> tuple[str, ...]:
+    names: list[str] = []
+    for payload in payloads:
+        for name in _extract_raw_tool_names(payload):
+            if name not in names:
+                names.append(name)
+    return tuple(names)
 
 
 def parse_output(raw: str) -> ParseResult:
     """Read one raw model output, reporting which stage failed."""
-    # A native <tool_call> block wins when present: that is what the chat
-    # template asks for. A bare JSON object still parses, so a model that
-    # answers in the plain envelope is not penalised for the wrapper.
-    native = extract_native_tool_call(raw)
-    block = native or extract_json_block(raw)
-    if block is None:
+    candidates = _extract_candidates(raw)
+    if not candidates:
         return ParseResult(
             raw,
             json_ok=False,
             schema_ok=False,
-            raw_tool_name=None,
             error="no JSON object",
         )
 
-    try:
-        payload = json.loads(block)
-    except json.JSONDecodeError as error:
+    payloads: list[dict] = []
+    first_json_error: json.JSONDecodeError | None = None
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate.block)
+        except json.JSONDecodeError as error:
+            first_json_error = first_json_error or error
+            continue
+        if isinstance(payload, dict):
+            payloads.append(payload)
+
+    raw_called_tools = _ordered_unique_tool_names(payloads)
+    if first_json_error is not None or len(payloads) != len(candidates):
         return ParseResult(
             raw,
             json_ok=False,
             schema_ok=False,
-            raw_tool_name=None,
-            error=str(error),
+            raw_called_tools=raw_called_tools,
+            error=str(first_json_error or "top level is not an object"),
         )
 
-    if not isinstance(payload, dict):
+    if len(payloads) > 1:
         return ParseResult(
             raw,
             json_ok=True,
             schema_ok=False,
-            raw_tool_name=None,
-            error="top level is not an object",
+            raw_called_tools=raw_called_tools,
+            error=f"multiple JSON objects ({len(payloads)})",
         )
 
-    raw_tool_name = _extract_raw_tool_name(payload, native=native is not None)
-
-    if native is not None or ("name" in payload and "action" not in payload):
+    payload = payloads[0]
+    if "name" in payload and "action" not in payload:
         payload = {"action": "tool_call", "tool_call": payload}
 
     try:
@@ -150,7 +209,7 @@ def parse_output(raw: str) -> ParseResult:
             raw,
             json_ok=True,
             schema_ok=False,
-            raw_tool_name=raw_tool_name,
+            raw_called_tools=raw_called_tools,
             error=error.errors()[0]["msg"],
         )
 
@@ -158,6 +217,6 @@ def parse_output(raw: str) -> ParseResult:
         raw,
         json_ok=True,
         schema_ok=True,
-        raw_tool_name=raw_tool_name,
+        raw_called_tools=raw_called_tools,
         decision=decision,
     )
