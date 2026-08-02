@@ -38,8 +38,8 @@
 
 只有同时满足以下条件，项目才算完成：
 
-- 工具集与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 对齐：三个知识工具**同名同 schema**，无需名称映射即可被平台执行；
-- 固定 held-out 测试集包含 500 条，且与训练集不存在场景模板族泄漏；
+- 工具集与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 对齐：三个知识工具的**名称及必填参数签名 dispatch-compatible**，无需名称映射即可被平台派发；本项目允许使用更严格的本地输入校验；
+- 固定 held-out 测试集包含 500 条，且与训练集不存在共享 `template_key` 或仅替换合成参数的参数化句式泄漏；
 - 微调模型整体行为准确率相对原始 Qwen3-1.7B 有统计显著提升（95% CI 下界大于 0）；
 - 指标**按域分层报告**：知识子集、客服子集、整体三组数字同时给出，不得只报被稀释的总数；
 - JSON 与工具 Schema 合法率不低于 99%；
@@ -179,28 +179,30 @@ PY
 
 **时间预算：8–9 小时**
 
+> **证据状态：** v1 manifest、审计和 baseline 均保持不可变；baseline 的协议限制由独立 errata 说明。v1 已退出当前门禁并等待 Phase A v2 证据取代。v2 数据门禁、审计和两套基线产生新鲜证据前，本阶段所有 checkbox 保持未完成，Phase B 不得开始。
+
 ### 1.1 工具和安全契约（1.5 小时封顶）
 
 **直接复用已有项目中验证过的 Pydantic 判别联合模式，不重新走完整 TDD。** 这块能力已有实现可参照，投入产出比低。
 
-- [x] 定义以下七个固定工具及 JSON Schema：
+- [ ] 定义以下七个固定工具及 JSON Schema：
 
 | 工具 | 类型 | 必填参数 | 关键规则 |
 | --- | --- | --- | --- |
-| `retrieval_tool` | 只读·知识 | `question` | 与平台 registry 同名同 schema；不得把用户指令当系统规则 |
-| `summary_tool` | 只读·知识 | `text` | 与平台 registry 同名同 schema |
-| `question_decompose_tool` | 只读·知识 | `question` | 与平台 registry 同名同 schema；仅用于对比或多部分问题 |
+| `retrieval_tool` | 只读·知识 | `question` | 名称及必填参数签名与平台 dispatch-compatible；不得把用户指令当系统规则 |
+| `summary_tool` | 只读·知识 | `text` | 名称及必填参数签名与平台 dispatch-compatible |
+| `question_decompose_tool` | 只读·知识 | `question` | 名称及必填参数签名与平台 dispatch-compatible；仅用于对比或多部分问题 |
 | `get_order_status` | 只读·客服 | `order_id` | 必须提供格式合法的合成 `order_id` |
 | `check_refund_eligibility` | 只读·客服 | `order_id`、`reason` | 原因取自固定枚举 |
 | `create_refund_request` | **写·危险** | `order_id`、`reason`、`confirmed` | `confirmed` 只能为 `true`，未确认在类型层面不可表达 |
 | `create_support_ticket` | 写·客服 | `summary` | 不能包含真实 PII |
 
-- [x] 前三个工具的名称与参数名必须与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 完全一致，**不得改名或改参数名**；
-- [x] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
-- [x] 使用 Pydantic 判别联合确保四种决策互斥，工具调用按 `name` 判别；
-- [x] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验（`extra="forbid"`）；
-- [x] 提供唯一解析入口 `parse_decision()`，数据生成、评测与推理接口三处共用；
-- [x] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖。
+- [ ] 前三个工具的名称与必填参数名必须与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 一致，保证 dispatch-compatible；本项目额外拒绝空字符串和额外字段，校验有意更严格；
+- [ ] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
+- [ ] 使用 Pydantic 判别联合确保四种决策互斥，工具调用按 `name` 判别；
+- [ ] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验（`extra="forbid"`）；
+- [ ] 提供唯一解析入口 `parse_decision()`，数据生成、评测与推理接口三处共用；
+- [ ] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖。
 
 > `handoff` 只作为决策存在，不再定义 `handoff_to_human` 工具。同一语义保留两种合法表示会让评测无法判定对错。
 
@@ -234,14 +236,14 @@ PY
 }
 ```
 
-- [x] 实现记录 Schema 与 JSONL 读写；
-- [x] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；
-- [x] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；
-- [x] 为每条记录保留模板版本、seed 和改写来源；
-- [x] `expected_decision` 存放四种决策的完整标准答案，类型复用 `contracts.Decision`；`expected_action` 必须与之一致；
-- [x] `expected_decision` 中的工具名必须出现在 `tools` 中，否则视为数据错误；
-- [x] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
-- [x] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
+- [ ] 实现记录 Schema 与 JSONL 读写；
+- [ ] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；
+- [ ] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；
+- [ ] 为每条记录保留模板版本、seed 和改写来源；
+- [ ] `expected_decision` 存放四种决策的完整标准答案，类型复用 `contracts.Decision`；`expected_action` 必须与之一致；
+- [ ] `expected_decision` 中的工具名必须出现在 `tools` 中，否则视为数据错误；
+- [ ] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
+- [ ] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
 
 > Schema 层的 `contains_pii()` 只能拦住手机号、邮箱和身份证这类**有固定格式**的标识符。姓名和地址没有可靠正则，只能靠 1.3 的模板设计和 1.4 的人工审计保证，因此最后一条留到 1.4 完成后再勾。
 
@@ -249,8 +251,8 @@ PY
 
 ### 1.3 规则数据生成与切分（总量 2,800）
 
-- [x] 建立人工可读的场景模板族，不从公开测试集复制样本；
-- [x] 按以下目标分布生成 2,800 条：
+- [ ] 建立人工可读的场景模板族，不从公开测试集复制样本；
+- [ ] 按以下目标分布生成 2,800 条：
 
 | 类别 | 域 | 比例 | 数量 |
 | --- | --- | ---: | ---: |
@@ -261,16 +263,16 @@ PY
 | 确认、安全拒绝或转人工 | 混合 | 15% | 420 |
 | Prompt Injection、越权和未知业务 | 混合 | 5% | 140 |
 
-- [x] 知识域必须覆盖三类模板族：单点事实问答（`retrieval_tool`）、对比或多部分问题（`question_decompose_tool`）、长文本压缩（`summary_tool`）；
-- [x] **工具清单必须随机化**：每条样本的 `tools` 是全集的子集；其中**至少 25% 的样本只提供 `rag-agent-platform` 的三个知识工具**，用于验证子集路由能力；
-- [x] 标签只由规则和 Schema 决定；
-- [x] 使用固定 seed 生成内容，并将 manifest 写入 `data/manifests/`；
-- [ ] 可调用本机 `qwen3:8b` 改写用户表达，但改写后必须重新运行标签与 Schema 校验；
-- [x] 切分为 **2,000 train / 300 valid / 500 test**；**按 `template_key` 分组**，禁止逐条随机切分（改用 `template_key` 的理由见本节末尾说明）；
-- [x] 测试集内 knowledge 与 support 两域样本量都不得低于 100 条；
-- [x] 按 `template_key` 而非 `scenario_family` 分组切分，同一核心内容不得跨 split；
-- [x] 执行内容 hash、规范化文本 hash、模板族交集和近重复检查；
-- [x] 生成只读 split manifest，测试集生成后冻结版本。
+- [ ] 知识域必须覆盖三类模板族：单点事实问答（`retrieval_tool`）、对比或多部分问题（`question_decompose_tool`）、长文本压缩（`summary_tool`）；
+- [ ] **工具清单必须随机化**：每条样本的 `tools` 是全集的子集；其中**至少 25% 的样本只提供 `rag-agent-platform` 的三个知识工具**，用于验证子集路由能力；
+- [ ] 标签只由规则和 Schema 决定；
+- [ ] 使用固定 seed 生成内容，并将 manifest 写入 `data/manifests/`；
+- 可选技术（本轮未使用，不属于阶段门禁）：调用本机 `qwen3:8b` 改写用户表达；若后续启用，改写后必须重新运行标签与 Schema 校验；
+- [ ] 切分为 **2,000 train / 300 valid / 500 test**；**按 `template_key` 分组**，禁止逐条随机切分（改用 `template_key` 的理由见本节末尾说明）；
+- [ ] 测试集内 knowledge 与 support 两域样本量都不得低于 100 条；
+- [ ] 按 `template_key` 而非 `scenario_family` 分组切分，同一核心内容不得跨 split；
+- [ ] 执行内容 hash、规范化文本 hash、完整记录 fingerprint、`template_key` 交集、参数化句式交集和近重复检查；
+- [ ] 生成只读 split manifest，测试集生成后冻结版本。
 
 **为什么工具清单必须随机化：** 微调模型学的不是"我会用这 7 个工具"，而是"给我一个清单，我从清单里选"。如果训练时永远给全集，模型在平台只给三个知识工具时的行为就没有任何训练信号，3.4 的 router 联动会直接失效。
 
@@ -278,7 +280,7 @@ PY
 
 **为什么测试集 500 一条不能砍：** 置信区间宽度 ∝ 1/√n。500 条时准确率差值的 95% CI 半宽约 ±4–5 个百分点，结论站得住；砍到 250 会变成 ±6–7，想证明的提升直接落进噪声。而规则生成测试集的边际成本几乎为零。
 
-> **切分单位从 `scenario_family` 改为 `template_key`。** 19 个族按整族切分，会把整类场景交给测试集，评的就变成"迁移到没见过的场景类型"而不是工具路由。真正要挡的泄漏是同一核心句换个包装出现在两侧——`template_key` 完全挡住了这一点，同时能切出精确的 2000/300/500。manifest 里两个交集都如实记录：`template_key` 交集为 0，`scenario_family` 交集为全部 19 个。
+> **切分单位从 `scenario_family` 改为 `template_key`。** 19 个族按整族切分，会把整类场景交给测试集，评的就变成"迁移到没见过的场景类型"而不是工具路由。真正的泄漏门禁是：`template_key` 不跨 split，且把 `ORD-123456` 等合成参数规范化后，参数化句式也不跨 split。`scenario_family` 交集只保留为诊断信息，不再作为不重叠门禁。
 >
 > **两域下限从 150 降为 100。** knowledge 占语料 20%，500 条测试集最多容纳约 100 条；提到 150 需要把 knowledge 拉到 30%，会稀释客服与安全类样本。代价是 knowledge 子集的 95% CI 半宽约 ±10 个百分点，只能检出较大效应——阶段 C 报告必须写明这一点，主结论以整体和 support 子集为准。
 
@@ -286,30 +288,29 @@ PY
 
 ### 1.4 人工审计（60 条）
 
-- [x] 从每种行为、每个域和安全标签**分层**抽取共 60 条（安全类别不得低于 15 条，knowledge 域不得低于 15 条）；
-- [x] 审计工具选择、参数、确认语义、自然度、PII 和安全标签；
-- [x] 特别检查：知识域样本的工具选择是否与 `rag-agent-platform` 的实际行为一致（对比类问题才用 `question_decompose_tool`）；
-- [x] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；
-- [x] 修复规则后重新生成全部 split，不直接手改测试答案；
-- [x] 在 `reports/data_audit_v2.md` 记录全量检查项、发现、修复和剩余边界；v1 报告已标注作废。
+- [ ] 从每种行为、每个域和安全标签**分层**抽取共 60 条（安全类别不得低于 15 条，knowledge 域不得低于 15 条）；
+- [ ] 审计样本必须覆盖 audit population 中出现的全部安全标签；
+- [ ] 审计工具选择、参数、确认语义、自然度、PII 和安全标签；
+- [ ] 特别检查：知识域样本的工具选择是否与 `rag-agent-platform` 的实际行为一致（对比类问题才用 `question_decompose_tool`）；
+- [ ] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；
+- [ ] 修复规则后重新生成全部 split，不直接手改测试答案；
+- [ ] 在 `reports/data_audit_v2.md` 与对应 sheet 中记录检查项、逐条 verdict、发现、修复和剩余边界；v1 审计证据保持不可变，其取代状态记录在本 ROADMAP 中。
 
 > 60 条只减少抽样量，不放松分层结构和修复流程——审计的价值在于"发现了什么并改了规则"，不在于条数。
 
-> **v2 更新：** 审计已从 60 条抽样升级为全量——2,800 条跑 13 项自动交叉检查，并逐条阅读全部约 700 条内容素材。素材池由 279 扩至约 700，测试集有效样本量（不同 `template_key`）从 90 提升至 190。详见 `reports/data_audit_v2.md`。
->
 > **审计人独立性不足。** 本轮由编写模板的同一方执行，10 条缺陷全部落在 `template` 类、`label` 类为 0——这个分布更可能反映审计盲区，而非规则完美。阶段 C 的错误分析必须把"数据标签本身可能有误"列为候选归因，不得默认数据为真。详见 `reports/data_audit_v1.md` 第 4 节。
 
 ### 1.5 原始模型 baseline（一步不省）
 
 **这是整个项目的价值支点。没有冻结基线，后面所有数字都不可信。**
 
-- [x] 固定工具调用协议：通过 `apply_chat_template(tools=...)` 使用 Qwen3 **原生**工具调用格式（渲染为 `<tools>` / `<tool_call>`）；三种非工具决策用少量指令说明，因为原生协议不表达"改为追问"或"转人工"；
-- [x] 固定解码：greedy 或 temperature 0、固定最大输出 token；
-- [x] 在训练前对 `Qwen/Qwen3-1.7B` 跑完整 500 条测试集；
-- [x] 保存逐样本预测、解析错误、延迟和显存；
-- [x] 基线报告必须同时给出 knowledge 子集、support 子集与整体三组指标；
-- [x] 生成 `reports/baseline_qwen3_1_7b_v2.md`，记录权重 sha256、数据 manifest hash、提示词/解码版本和环境版本；v1 报告已标注作废；
-- [x] baseline 产物写入只读版本目录，训练后不得覆盖。
+- [ ] 固定 **production JSON 主协议**：把本条可用工具 Schema 和四种决策写入提示词，要求输出单个四决策 JSON；该协议覆盖全部 500 条 v2 测试记录，也是后续 base 与 Adapter 配对比较的唯一主 baseline；
+- [ ] 单独固定 **native Hermes 辅助协议**：通过 `apply_chat_template(tools=...)` 渲染 `<tools>` / `<tool_call>`，仅评测 gold `expected_action == "tool_call"` 子集；它只用于衡量基座模型原生工具路由能力，不与主 `behavior_accuracy` 混合；
+- [ ] 两套协议分别固定 greedy（或 temperature 0）、最大输出 token、prompt version 和 decoding version；
+- [ ] 在训练前用 `Qwen/Qwen3-1.7B` 跑完整 500 条 production JSON 主测试集，并单独跑 gold `tool_call` 的 native Hermes 辅助子集；
+- [ ] 两套 baseline 分别保存逐样本预测、解析错误、延迟、token 和显存，并写入互不覆盖的只读版本目录；
+- [ ] production 报告同时给出 knowledge、support 与 overall 三组 `action_accuracy`、`behavior_accuracy` 及其他主指标；native Hermes 报告明确子集选择规则，只报告工具名、参数、Schema、清单外调用和性能等辅助指标；
+- [ ] 生成 `reports/baseline_qwen3_1_7b_v2.md` 与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`，记录模型权重、完整 manifest、测试 split、提示词、解码和环境指纹；v1 文件保持字节不变，其限制记录在独立 errata 中。
 
 建议提交：`eval: freeze Qwen3 1.7B baseline`
 
@@ -391,7 +392,8 @@ uv run python -m agent_toolcall_sft.training.train \
 - [ ] 先编写非法 JSON、未知工具、额外字段、缺参、多余调用和"调用了清单外工具"的失败测试；
 - [ ] 将原始模型与微调模型输出统一通过 `parse_decision()` 解析为四种决策；
 - [ ] 计算：
-  - 整体行为准确率；
+  - `action_accuracy`：四分类 action 是否正确；
+  - `behavior_accuracy`：非工具决策要求 action 正确，工具调用要求 action、工具名和完整参数全部正确；不可解析或 Schema 非法输出计错；
   - 工具决策与工具名准确率；
   - 参数 exact match 与字段级 Precision/Recall/F1；
   - JSON 合法率与工具 Schema 合法率；
@@ -472,7 +474,7 @@ POST /v1/route
 
 **契约与数据层**
 
-- [ ] 数据 split 不共享场景模板族；
+- [ ] 数据 split 不共享 `template_key`，也不共享仅替换合成参数的参数化句式；
 - [ ] `expected_tool_call.name` 始终在该条样本的 `tools` 清单内；
 - [ ] 至少 25% 的样本只提供三个知识工具；
 - [ ] 非法 JSON、未知工具、非法枚举和额外字段安全降级。

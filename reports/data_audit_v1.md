@@ -1,8 +1,5 @@
 # 数据人工审计报告 v1
 
-> **已作废，保留为历史证据。** 本文件基于 `template_version = v1` 与 `PROMPT_VERSION = v1`，两者均已被独立复核判定存在缺陷（跨 split 泄漏、manifest 未冻结标签、提示词非模型原生协议）。请改用 `reports/data_audit_v2.md`，本文件的数字不得再作为基线或结论引用。
-
-
 - 日期：2026-08-01
 - 语料版本：`template_version = v1`，2,800 条
 - 对应 manifest：`data/manifests/split_v1.json`
