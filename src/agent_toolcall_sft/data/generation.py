@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from agent_toolcall_sft.contracts import ALL_TOOL_NAMES, KNOWLEDGE_TOOL_NAMES
 from agent_toolcall_sft.data.records import DatasetRecord, Domain
 
-TEMPLATE_VERSION = "v1"
+# v2 expanded every content pool ~2.5x and gave order_status_lookup a
+# stable template_key; v1 splits are not comparable and are kept only as
+# historical evidence.
+TEMPLATE_VERSION = "v2"
 
 # How many distractor tools are offered alongside the correct one. Keeping a
 # range rather than a constant stops the model from learning "the answer is

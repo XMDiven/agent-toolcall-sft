@@ -6,33 +6,22 @@ to produce. `expected_tool_call` reuses the contracts module so training
 labels and evaluation checks are validated by exactly one definition.
 """
 
-import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, ValidationError, model_validator
 
-from agent_toolcall_sft.contracts import ALL_TOOL_NAMES, Decision, StrictModel
+from agent_toolcall_sft.contracts import (
+    ALL_TOOL_NAMES,
+    Decision,
+    StrictModel,
+    contains_pii,
+)
 
 Domain = Literal["knowledge", "support"]
 
 ExpectedAction = Literal["tool_call", "clarify", "direct_answer", "handoff"]
-
-# Patterns for real personal data that must never reach a generated record.
-# The dataset is synthetic, so any hit means a template or an LLM rewrite
-# leaked something it should not have.
-PII_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"1[3-9]\d{9}"),
-    re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
-    re.compile(r"\b\d{17}[\dXx]\b"),
-)
-
-
-def contains_pii(text: str) -> bool:
-    """Return True when the text matches any known real-PII pattern."""
-    return any(pattern.search(text) for pattern in PII_PATTERNS)
-
 
 class Message(StrictModel):
     role: Literal["system", "user", "assistant"]

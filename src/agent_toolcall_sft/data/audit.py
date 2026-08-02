@@ -1,5 +1,10 @@
 """Stratified sampling for the manual data audit.
 
+The sheet this produces is a worksheet for a *second* reviewer, not the record
+of an audit already performed. An unticked sheet means nobody has independently
+read the rows yet; it does not mean the corpus went unchecked. What the project
+has already run over every row lives in `reports/data_audit_v2.md`.
+
 The audit reads training data only. Every split comes out of the same
 templates, so the training split is fully representative -- and never opening
 the test set removes any chance of a rule being rewritten because of what the
@@ -113,7 +118,13 @@ def render_audit_sheet(records: list[DatasetRecord]) -> str:
     """Render the sample as a checklist an auditor can mark up in place."""
     counts = Counter(stratum_of(record) for record in records)
     lines = [
-        "# 数据人工审计表 v1",
+        "# 数据人工审计工作表",
+        "",
+        (
+            "> 这是一份**待审工作表**，供项目所有者独立复核。空的勾选框表示"
+            "尚无第二人复核，不代表语料未经检查——已执行的全量检查见 "
+            "`reports/data_audit_v2.md`。"
+        ),
         "",
         f"样本量：{len(records)} 条，来源：train + valid（**不含 test**）",
         "",

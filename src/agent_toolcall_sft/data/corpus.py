@@ -273,8 +273,13 @@ def leakage_report(splits: dict[str, list[DatasetRecord]]) -> dict:
 
 
 def _split_summary(records: list[DatasetRecord]) -> dict:
+    # Hash the whole record, not just its text. An earlier version covered only
+    # id + template_key + messages, which meant tools, safety_tags and even
+    # expected_decision could be edited without moving the digest -- a frozen
+    # test set whose answers were not actually frozen.
     payload = "\n".join(
-        f"{r.id}\t{r.template_key}\t{_content(r)}" for r in records
+        json.dumps(r.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+        for r in records
     )
 
     return {

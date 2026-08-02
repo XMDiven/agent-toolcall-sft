@@ -78,3 +78,38 @@ def test_name_constants_stay_in_sync_with_the_tool_union():
         get_args(member.model_fields["name"].annotation)[0] for member in members
     }
     assert tags == ALL_TOOL_NAMES
+
+
+def test_tool_arguments_reject_real_pii():
+    """Free text in a tool call reaches a system that stores or forwards it."""
+    for payload in (
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "create_support_ticket",
+                "arguments": {"summary": "请联系 13800138000 或 user@example.com"},
+            },
+        },
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "retrieval_tool",
+                "arguments": {"question": "我的身份证 11010119900307561X 怎么改"},
+            },
+        },
+    ):
+        with pytest.raises(ValidationError):
+            parse_decision(payload)
+
+
+def test_ordinary_free_text_still_passes():
+    decision = parse_decision(
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "create_support_ticket",
+                "arguments": {"summary": "订单 ORD-100001 的发票下载不了"},
+            },
+        }
+    )
+    assert decision.tool_call.arguments.summary.startswith("订单")

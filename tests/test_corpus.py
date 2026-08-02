@@ -170,3 +170,49 @@ def test_written_splits_round_trip(tmp_path, splits):
         assert reloaded == splits[name]
 
     assert written["manifest"].exists()
+
+
+# ---------------------------------------------------------------------------
+# Regression guards for the review findings
+# ---------------------------------------------------------------------------
+
+
+def test_no_core_sentence_pattern_crosses_a_split(splits):
+    """Randomised order ids must not disguise a shared skeleton.
+
+    order_status_lookup once left template_key unset, so every record became
+    its own group and 30 skeletons -- 90 records -- straddled the boundary
+    while the manifest still reported leakage_clean.
+    """
+    import re
+
+    order_id = re.compile(r"ORD-\d{6}")
+    patterns = {
+        name: {order_id.sub("<ORD>", r.messages[0].content) for r in records}
+        for name, records in splits.items()
+    }
+
+    assert not patterns["train"] & patterns["test"]
+    assert not patterns["train"] & patterns["valid"]
+    assert not patterns["valid"] & patterns["test"]
+
+
+def test_manifest_hash_covers_the_gold_answers(splits):
+    """Editing an answer must move the digest, or nothing is really frozen."""
+    from agent_toolcall_sft.data.corpus import _split_summary
+
+    records = splits["test"]
+    before = _split_summary(records)["sha256"]
+
+    tampered = list(records)
+    tampered[0] = records[0].model_copy(
+        update={
+            "expected_action": "handoff",
+            "expected_decision": {"action": "handoff", "reason": "tampered"},
+        }
+    )
+    assert _split_summary(tampered)["sha256"] != before
+
+    retagged = list(records)
+    retagged[0] = records[0].model_copy(update={"safety_tags": ["tampered"]})
+    assert _split_summary(retagged)["sha256"] != before
