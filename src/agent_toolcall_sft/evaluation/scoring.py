@@ -44,17 +44,18 @@ def score_record(record: DatasetRecord, raw_output: str) -> RecordScore:
     )
 
     predicted_action = result.decision.action if result.decision else None
-    called_tool = None
+    called_tool = result.raw_tool_name
     tool_name_correct = None
     arguments_exact = None
     arguments_normalized = None
 
-    if result.decision is not None and result.decision.action == "tool_call":
-        called_tool = result.decision.tool_call.name
-
     if expected.action == "tool_call":
         tool_name_correct = called_tool == expected_tool
-        if tool_name_correct:
+        if (
+            tool_name_correct
+            and result.decision is not None
+            and result.decision.action == "tool_call"
+        ):
             predicted_args = result.decision.tool_call.arguments.model_dump()
             gold_args = expected.tool_call.arguments.model_dump()
             arguments_exact = predicted_args == gold_args

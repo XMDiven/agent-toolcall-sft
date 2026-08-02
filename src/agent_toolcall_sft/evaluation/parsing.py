@@ -28,6 +28,7 @@ class ParseResult:
     raw: str
     json_ok: bool
     schema_ok: bool
+    raw_tool_name: str | None = None
     decision: Decision | None = None
     error: str | None = None
 
@@ -90,6 +91,17 @@ def extract_native_tool_call(text: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _extract_raw_tool_name(payload: dict, *, native: bool) -> str | None:
+    """Read an untrusted routing name without treating its arguments as valid."""
+    if native or ("name" in payload and "action" not in payload):
+        name = payload.get("name")
+    else:
+        tool_call = payload.get("tool_call")
+        name = tool_call.get("name") if isinstance(tool_call, dict) else None
+
+    return name if isinstance(name, str) else None
+
+
 def parse_output(raw: str) -> ParseResult:
     """Read one raw model output, reporting which stage failed."""
     # A native <tool_call> block wins when present: that is what the chat
@@ -98,17 +110,35 @@ def parse_output(raw: str) -> ParseResult:
     native = extract_native_tool_call(raw)
     block = native or extract_json_block(raw)
     if block is None:
-        return ParseResult(raw, json_ok=False, schema_ok=False, error="no JSON object")
+        return ParseResult(
+            raw,
+            json_ok=False,
+            schema_ok=False,
+            raw_tool_name=None,
+            error="no JSON object",
+        )
 
     try:
         payload = json.loads(block)
     except json.JSONDecodeError as error:
-        return ParseResult(raw, json_ok=False, schema_ok=False, error=str(error))
+        return ParseResult(
+            raw,
+            json_ok=False,
+            schema_ok=False,
+            raw_tool_name=None,
+            error=str(error),
+        )
 
     if not isinstance(payload, dict):
         return ParseResult(
-            raw, json_ok=True, schema_ok=False, error="top level is not an object"
+            raw,
+            json_ok=True,
+            schema_ok=False,
+            raw_tool_name=None,
+            error="top level is not an object",
         )
+
+    raw_tool_name = _extract_raw_tool_name(payload, native=native is not None)
 
     if native is not None or ("name" in payload and "action" not in payload):
         payload = {"action": "tool_call", "tool_call": payload}
@@ -117,7 +147,17 @@ def parse_output(raw: str) -> ParseResult:
         decision = parse_decision(payload)
     except ValidationError as error:
         return ParseResult(
-            raw, json_ok=True, schema_ok=False, error=error.errors()[0]["msg"]
+            raw,
+            json_ok=True,
+            schema_ok=False,
+            raw_tool_name=raw_tool_name,
+            error=error.errors()[0]["msg"],
         )
 
-    return ParseResult(raw, json_ok=True, schema_ok=True, decision=decision)
+    return ParseResult(
+        raw,
+        json_ok=True,
+        schema_ok=True,
+        raw_tool_name=raw_tool_name,
+        decision=decision,
+    )
