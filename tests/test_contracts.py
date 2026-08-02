@@ -80,26 +80,67 @@ def test_name_constants_stay_in_sync_with_the_tool_union():
     assert tags == ALL_TOOL_NAMES
 
 
-def test_tool_arguments_reject_real_pii():
-    """Free text in a tool call reaches a system that stores or forwards it."""
-    for payload in (
+@pytest.mark.parametrize(
+    "summary",
+    [
+        "请联系 13800138000",
+        "请联系 user@example.com",
+        "身份证是 11010119900307561X",
+    ],
+    ids=["phone", "email", "identity-card"],
+)
+def test_support_ticket_summary_rejects_real_pii(summary):
+    with pytest.raises(ValidationError):
+        parse_decision(
+            {
+                "action": "tool_call",
+                "tool_call": {
+                    "name": "create_support_ticket",
+                    "arguments": {"summary": summary},
+                },
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "argument", "text"),
+    [
+        ("retrieval_tool", "question", "客服电话是 13800138000 吗"),
+        ("summary_tool", "text", "联系邮箱是 user@example.com"),
+        ("question_decompose_tool", "question", "身份证 11010119900307561X 怎么改"),
+    ],
+)
+def test_knowledge_tools_accept_dispatch_compatible_nonempty_strings(
+    name, argument, text
+):
+    decision = parse_decision(
         {
             "action": "tool_call",
             "tool_call": {
-                "name": "create_support_ticket",
-                "arguments": {"summary": "请联系 13800138000 或 user@example.com"},
+                "name": name,
+                "arguments": {argument: text},
             },
-        },
-        {
-            "action": "tool_call",
-            "tool_call": {
-                "name": "retrieval_tool",
-                "arguments": {"question": "我的身份证 11010119900307561X 怎么改"},
-            },
-        },
-    ):
-        with pytest.raises(ValidationError):
-            parse_decision(payload)
+        }
+    )
+    assert getattr(decision.tool_call.arguments, argument) == text
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [{"question": ""}, {"question": "退货政策", "extra": True}],
+    ids=["empty", "extra"],
+)
+def test_knowledge_tools_keep_local_strict_validation(arguments):
+    with pytest.raises(ValidationError):
+        parse_decision(
+            {
+                "action": "tool_call",
+                "tool_call": {
+                    "name": "retrieval_tool",
+                    "arguments": arguments,
+                },
+            }
+        )
 
 
 def test_ordinary_free_text_still_passes():

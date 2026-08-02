@@ -16,8 +16,8 @@ from agent_toolcall_sft.contracts import (
     ALL_TOOL_NAMES,
     Decision,
     StrictModel,
-    contains_pii,
 )
+from agent_toolcall_sft.data.safety import contains_pii
 
 Domain = Literal["knowledge", "support"]
 

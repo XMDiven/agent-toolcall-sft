@@ -32,6 +32,7 @@ SHINGLE_SIZE = 4
 NEAR_DUPLICATE_THRESHOLD = 0.85
 
 _PUNCTUATION = re.compile(r"[\s\W_]+", flags=re.UNICODE)
+_SYNTHETIC_ORDER_ID = re.compile(r"ORD-\d{6}")
 
 
 class SplitError(RuntimeError):
@@ -182,6 +183,11 @@ def normalize(text: str) -> str:
     return _PUNCTUATION.sub("", unicodedata.normalize("NFKC", text).casefold())
 
 
+def normalize_synthetic_parameters(text: str) -> str:
+    """Replace generated parameter values with their stable sentence skeleton."""
+    return _SYNTHETIC_ORDER_ID.sub("ORD-NNNNNN", text)
+
+
 def _content(record: DatasetRecord) -> str:
     return "\n".join(message.content for message in record.messages)
 
@@ -246,6 +252,13 @@ def leakage_report(splits: dict[str, list[DatasetRecord]]) -> dict:
     families = {n: {r.scenario_family for r in rs} for n, rs in splits.items()}
     exact = {n: {_digest(_content(r)) for r in rs} for n, rs in splits.items()}
     folded = {n: {_digest(normalize(_content(r))) for r in rs} for n, rs in splits.items()}
+    parameterized = {
+        n: {
+            _digest(normalize(normalize_synthetic_parameters(_content(record))))
+            for record in records
+        }
+        for n, records in splits.items()
+    }
 
     names = sorted(splits)
     pairs = [(a, b) for i, a in enumerate(names) for b in names[i + 1 :]]
@@ -259,6 +272,10 @@ def leakage_report(splits: dict[str, list[DatasetRecord]]) -> dict:
         },
         "shared_normalized_hashes": {
             f"{a}|{b}": len(folded[a] & folded[b]) for a, b in pairs
+        },
+        "shared_parameterized_hashes": {
+            f"{a}|{b}": len(parameterized[a] & parameterized[b])
+            for a, b in pairs
         },
         "near_duplicate_pairs": find_near_duplicates(splits),
         "shared_scenario_families": {
@@ -278,7 +295,12 @@ def _split_summary(records: list[DatasetRecord]) -> dict:
     # expected_decision could be edited without moving the digest -- a frozen
     # test set whose answers were not actually frozen.
     payload = "\n".join(
-        json.dumps(r.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+        json.dumps(
+            r.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         for r in records
     )
 
@@ -312,6 +334,7 @@ def build_manifest(splits: dict[str, list[DatasetRecord]], seed: int) -> dict:
             not any(report["shared_template_keys"].values())
             and not any(report["shared_content_hashes"].values())
             and not any(report["shared_normalized_hashes"].values())
+            and not any(report["shared_parameterized_hashes"].values())
             and not report["near_duplicate_pairs"]
         ),
     }

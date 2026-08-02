@@ -1,5 +1,10 @@
+import hashlib
+import json
+
 import pytest
 
+from agent_toolcall_sft.contracts import HandoffDecision
+from agent_toolcall_sft.data import corpus as corpus_module
 from agent_toolcall_sft.data.corpus import (
     SPLIT_SIZES,
     build_corpus,
@@ -137,6 +142,38 @@ def test_near_duplicate_sweep_catches_a_planted_pair(corpus):
     assert matches[0][2] >= 0.85
 
 
+def test_parameterized_hash_catches_order_ids_across_splits(corpus):
+    left = corpus[0].model_copy(
+        update={
+            "id": "parameterized_left",
+            "template_key": "parameterized:left",
+            "messages": [
+                corpus[0].messages[0].model_copy(
+                    update={"content": "查询订单 ORD-123456"}
+                )
+            ],
+        }
+    )
+    right = corpus[0].model_copy(
+        update={
+            "id": "parameterized_right",
+            "template_key": "parameterized:right",
+            "messages": [
+                corpus[0].messages[0].model_copy(
+                    update={"content": "查询订单 ORD-654321"}
+                )
+            ],
+        }
+    )
+    planted = {"left": [left], "right": [right]}
+
+    report = leakage_report(planted)
+
+    assert corpus_module.normalize_synthetic_parameters("ORD-123456") == "ORD-NNNNNN"
+    assert report["shared_parameterized_hashes"] == {"left|right": 1}
+    assert build_manifest(planted, seed=1)["leakage_clean"] is False
+
+
 # ---------------------------------------------------------------------------
 # Manifest
 # ---------------------------------------------------------------------------
@@ -197,22 +234,46 @@ def test_no_core_sentence_pattern_crosses_a_split(splits):
     assert not patterns["valid"] & patterns["test"]
 
 
-def test_manifest_hash_covers_the_gold_answers(splits):
-    """Editing an answer must move the digest, or nothing is really frozen."""
+def test_manifest_hash_uses_compact_canonical_json(splits):
+    from agent_toolcall_sft.data.corpus import _split_summary
+
+    records = splits["test"][:2]
+    payload = "\n".join(
+        json.dumps(
+            record.model_dump(mode="json"),
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        for record in records
+    )
+
+    assert _split_summary(records)["sha256"] == hashlib.sha256(
+        payload.encode("utf-8")
+    ).hexdigest()
+
+
+def test_manifest_hash_covers_every_frozen_record_field(splits):
+    """Every semantically relevant record field belongs to the fingerprint."""
     from agent_toolcall_sft.data.corpus import _split_summary
 
     records = splits["test"]
     before = _split_summary(records)["sha256"]
 
-    tampered = list(records)
-    tampered[0] = records[0].model_copy(
-        update={
-            "expected_action": "handoff",
-            "expected_decision": {"action": "handoff", "reason": "tampered"},
-        }
+    mutations = (
+        {"tools": [*records[0].tools, "create_support_ticket"]},
+        {"tools": list(reversed(records[0].tools))},
+        {"expected_action": "handoff"},
+        {"expected_decision": HandoffDecision(action="handoff", reason="tampered")},
+        {"safety_tags": [*records[0].safety_tags, "tampered"]},
+        {
+            "provenance": records[0].provenance.model_copy(
+                update={"seed": records[0].provenance.seed + 1}
+            )
+        },
     )
-    assert _split_summary(tampered)["sha256"] != before
 
-    retagged = list(records)
-    retagged[0] = records[0].model_copy(update={"safety_tags": ["tampered"]})
-    assert _split_summary(retagged)["sha256"] != before
+    for mutation in mutations:
+        tampered = list(records)
+        tampered[0] = records[0].model_copy(update=mutation)
+        assert _split_summary(tampered)["sha256"] != before

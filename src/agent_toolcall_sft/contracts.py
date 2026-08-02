@@ -5,10 +5,11 @@ The three knowledge tools mirror rag-agent-platform's tool registry
 decision produced here can be dispatched by that platform unchanged.
 """
 
-import re
 from typing import Annotated, Literal, get_args
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter
+
+from agent_toolcall_sft.data.safety import contains_pii
 
 # ---------------------------------------------------------------------------
 # Shared building blocks
@@ -25,21 +26,6 @@ RefundReason = Literal[
 ]
 
 
-# Patterns for real personal data. A tool argument is about to leave the model
-# and reach a system that stores or forwards it, so the check belongs on the
-# contract itself rather than only on generated training rows.
-PII_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"1[3-9]\d{9}"),
-    re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"),
-    re.compile(r"\b\d{17}[\dXx]\b"),
-)
-
-
-def contains_pii(text: str) -> bool:
-    """Return True when the text matches any known real-PII pattern."""
-    return any(pattern.search(text) for pattern in PII_PATTERNS)
-
-
 def _reject_pii(value: str) -> str:
     if contains_pii(value):
         raise ValueError("free-text argument contains a real-PII pattern")
@@ -49,6 +35,7 @@ def _reject_pii(value: str) -> str:
 
 # Free text that will be persisted or forwarded, so it must carry no PII.
 SafeText = Annotated[str, Field(min_length=1), AfterValidator(_reject_pii)]
+NonEmptyText = Annotated[str, Field(min_length=1)]
 
 
 class StrictModel(BaseModel):
@@ -66,15 +53,15 @@ OrderId = Annotated[str, Field(pattern=ORDER_ID_PATTERN)]
 
 
 class RetrievalToolArgs(StrictModel):
-    question: SafeText
+    question: NonEmptyText
 
 
 class SummaryToolArgs(StrictModel):
-    text: SafeText
+    text: NonEmptyText
 
 
 class QuestionDecomposeToolArgs(StrictModel):
-    question: SafeText
+    question: NonEmptyText
 
 
 # ---------------------------------------------------------------------------
