@@ -266,7 +266,7 @@ PY
 - [x] 标签只由规则和 Schema 决定；
 - [x] 使用固定 seed 生成内容，并将 manifest 写入 `data/manifests/`；
 - [ ] 可调用本机 `qwen3:8b` 改写用户表达，但改写后必须重新运行标签与 Schema 校验；
-- [x] 按 `scenario_family` 分组切分为 **2,000 train / 300 valid / 500 test**；禁止逐条随机切分；
+- [x] 切分为 **2,000 train / 300 valid / 500 test**；**按 `template_key` 分组**，禁止逐条随机切分（改用 `template_key` 的理由见本节末尾说明）；
 - [x] 测试集内 knowledge 与 support 两域样本量都不得低于 100 条；
 - [x] 按 `template_key` 而非 `scenario_family` 分组切分，同一核心内容不得跨 split；
 - [x] 执行内容 hash、规范化文本 hash、模板族交集和近重复检查；
@@ -291,22 +291,24 @@ PY
 - [x] 特别检查：知识域样本的工具选择是否与 `rag-agent-platform` 的实际行为一致（对比类问题才用 `question_decompose_tool`）；
 - [x] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；
 - [x] 修复规则后重新生成全部 split，不直接手改测试答案；
-- [x] 在 `reports/data_audit_v1.md` 记录审计数量、错误数量、修复和剩余边界。
+- [x] 在 `reports/data_audit_v2.md` 记录全量检查项、发现、修复和剩余边界；v1 报告已标注作废。
 
 > 60 条只减少抽样量，不放松分层结构和修复流程——审计的价值在于"发现了什么并改了规则"，不在于条数。
 
+> **v2 更新：** 审计已从 60 条抽样升级为全量——2,800 条跑 13 项自动交叉检查，并逐条阅读全部约 700 条内容素材。素材池由 279 扩至约 700，测试集有效样本量（不同 `template_key`）从 90 提升至 190。详见 `reports/data_audit_v2.md`。
+>
 > **审计人独立性不足。** 本轮由编写模板的同一方执行，10 条缺陷全部落在 `template` 类、`label` 类为 0——这个分布更可能反映审计盲区，而非规则完美。阶段 C 的错误分析必须把"数据标签本身可能有误"列为候选归因，不得默认数据为真。详见 `reports/data_audit_v1.md` 第 4 节。
 
 ### 1.5 原始模型 baseline（一步不省）
 
 **这是整个项目的价值支点。没有冻结基线，后面所有数字都不可信。**
 
-- [x] 固定 Qwen3 官方 Hermes 风格工具调用模板；
+- [x] 固定工具调用协议：通过 `apply_chat_template(tools=...)` 使用 Qwen3 **原生**工具调用格式（渲染为 `<tools>` / `<tool_call>`）；三种非工具决策用少量指令说明，因为原生协议不表达"改为追问"或"转人工"；
 - [x] 固定解码：greedy 或 temperature 0、固定最大输出 token；
 - [x] 在训练前对 `Qwen/Qwen3-1.7B` 跑完整 500 条测试集；
 - [x] 保存逐样本预测、解析错误、延迟和显存；
 - [x] 基线报告必须同时给出 knowledge 子集、support 子集与整体三组指标；
-- [x] 生成 `reports/baseline_qwen3_1_7b.md`，记录模型 revision、数据 manifest hash 和环境版本；
+- [x] 生成 `reports/baseline_qwen3_1_7b_v2.md`，记录权重 sha256、数据 manifest hash、提示词/解码版本和环境版本；v1 报告已标注作废；
 - [x] baseline 产物写入只读版本目录，训练后不得覆盖。
 
 建议提交：`eval: freeze Qwen3 1.7B baseline`

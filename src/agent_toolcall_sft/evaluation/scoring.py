@@ -100,6 +100,21 @@ def _normalize_arguments(arguments: dict) -> dict:
     }
 
 
+def is_fully_correct(score: RecordScore) -> bool:
+    """End-to-end correctness: the call would have executed correctly.
+
+    `action_correct` alone only checks the four-way decision, so a tool call
+    with the wrong tool or wrong arguments still counts. Reporting that as
+    "行为准确率" overstates what the model can actually be trusted to do.
+    """
+    if not score.schema_ok or score.predicted_action != score.expected_action:
+        return False
+    if score.expected_action != "tool_call":
+        return True
+
+    return bool(score.tool_name_correct and score.arguments_exact)
+
+
 def _rate(hits: int, total: int) -> float | None:
     return round(hits / total, 4) if total else None
 
@@ -132,6 +147,9 @@ def aggregate(scores: list[RecordScore]) -> dict:
         "json_valid_rate": _rate(sum(s.json_ok for s in scores), total),
         "schema_valid_rate": _rate(sum(s.schema_ok for s in scores), total),
         "action_accuracy": _rate(sum(s.action_correct for s in scores), total),
+        "end_to_end_accuracy": _rate(
+            sum(is_fully_correct(s) for s in scores), total
+        ),
         "tool_name_accuracy": _rate(
             sum(bool(s.tool_name_correct) for s in gold_tool_calls),
             len(gold_tool_calls),

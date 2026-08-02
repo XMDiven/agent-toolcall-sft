@@ -11,6 +11,7 @@ inflate every rate computed from it.
 """
 
 import json
+import re
 from dataclasses import dataclass
 
 from pydantic import ValidationError
@@ -79,9 +80,23 @@ def extract_json_block(text: str) -> str | None:
     return None
 
 
+_TOOL_CALL_TAG = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.DOTALL)
+
+
+def extract_native_tool_call(text: str) -> str | None:
+    """Pull the payload out of Qwen3's native <tool_call> block."""
+    match = _TOOL_CALL_TAG.search(text)
+
+    return match.group(1) if match else None
+
+
 def parse_output(raw: str) -> ParseResult:
     """Read one raw model output, reporting which stage failed."""
-    block = extract_json_block(raw)
+    # A native <tool_call> block wins when present: that is what the chat
+    # template asks for. A bare JSON object still parses, so a model that
+    # answers in the plain envelope is not penalised for the wrapper.
+    native = extract_native_tool_call(raw)
+    block = native or extract_json_block(raw)
     if block is None:
         return ParseResult(raw, json_ok=False, schema_ok=False, error="no JSON object")
 
@@ -94,6 +109,9 @@ def parse_output(raw: str) -> ParseResult:
         return ParseResult(
             raw, json_ok=True, schema_ok=False, error="top level is not an object"
         )
+
+    if native is not None or ("name" in payload and "action" not in payload):
+        payload = {"action": "tool_call", "tool_call": payload}
 
     try:
         decision = parse_decision(payload)

@@ -1,0 +1,122 @@
+{
+  "confusion": {
+    "clarify": {
+      "clarify": 50,
+      "direct_answer": 35,
+      "handoff": 2,
+      "tool_call": 13,
+      "unparsed": 3
+    },
+    "direct_answer": {
+      "clarify": 22,
+      "direct_answer": 50,
+      "handoff": 3
+    },
+    "handoff": {
+      "clarify": 31,
+      "direct_answer": 36,
+      "handoff": 27,
+      "unparsed": 5
+    },
+    "tool_call": {
+      "clarify": 40,
+      "direct_answer": 41,
+      "handoff": 9,
+      "tool_call": 100,
+      "unparsed": 33
+    }
+  },
+  "environment": {
+    "decoding": {
+      "do_sample": false,
+      "enable_thinking": false,
+      "max_new_tokens": 256,
+      "num_beams": 1
+    },
+    "decoding_version": "v1",
+    "gpu": "NVIDIA GeForce RTX 3060 Laptop GPU",
+    "model_id": "/home/mdiven/models/Qwen3-1.7B",
+    "peak_vram_gib": 3.359,
+    "prompt_version": "v2",
+    "torch": "2.12.1+cu130"
+  },
+  "latency": {
+    "mean_ms": 1293.61,
+    "p50_ms": 1189.7,
+    "p95_ms": 2027.92
+  },
+  "metrics": {
+    "knowledge": {
+      "accuracy_by_expected_action": {
+        "tool_call": 0.24
+      },
+      "action_accuracy": 0.24,
+      "argument_exact_match": 0.09,
+      "argument_match_ignoring_edge_punctuation": 0.15,
+      "dangerous_write_misuse_denominator": 100,
+      "dangerous_write_misuse_rate": 0.0,
+      "dangerous_write_misuse_rate_over_all_records": 0.0,
+      "end_to_end_accuracy": 0.09,
+      "json_valid_rate": 1.0,
+      "n": 100,
+      "off_menu_call_rate": 0.0,
+      "schema_valid_rate": 0.79,
+      "tool_name_accuracy": 0.24
+    },
+    "overall": {
+      "accuracy_by_expected_action": {
+        "clarify": 0.4854,
+        "direct_answer": 0.6667,
+        "handoff": 0.2727,
+        "tool_call": 0.4484
+      },
+      "action_accuracy": 0.454,
+      "argument_exact_match": 0.2915,
+      "argument_match_ignoring_edge_punctuation": 0.3184,
+      "dangerous_write_misuse_denominator": 469,
+      "dangerous_write_misuse_rate": 0.0213,
+      "dangerous_write_misuse_rate_over_all_records": 0.02,
+      "end_to_end_accuracy": 0.384,
+      "json_valid_rate": 0.992,
+      "n": 500,
+      "off_menu_call_rate": 0.0,
+      "schema_valid_rate": 0.918,
+      "tool_name_accuracy": 0.4081
+    },
+    "support": {
+      "accuracy_by_expected_action": {
+        "clarify": 0.4854,
+        "direct_answer": 0.6667,
+        "handoff": 0.2727,
+        "tool_call": 0.6179
+      },
+      "action_accuracy": 0.5075,
+      "argument_exact_match": 0.4553,
+      "argument_match_ignoring_edge_punctuation": 0.4553,
+      "dangerous_write_misuse_denominator": 369,
+      "dangerous_write_misuse_rate": 0.0271,
+      "dangerous_write_misuse_rate_over_all_records": 0.025,
+      "end_to_end_accuracy": 0.4575,
+      "json_valid_rate": 0.99,
+      "n": 400,
+      "off_menu_call_rate": 0.0,
+      "schema_valid_rate": 0.95,
+      "tool_name_accuracy": 0.5447
+    }
+  },
+  "records": 500,
+  "schema_errors": {
+    "Input tag 'check_refund_eligibility' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 1,
+    "Input tag 'create_support_ticket' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 5,
+    "Input tag 'get_order_status' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 8,
+    "Input tag 'question_decompose_tool' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 11,
+    "Input tag 'retrieval_tool' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 6,
+    "Input tag 'summary_tool' found using 'action' does not match any of the expected tags: 'tool_call', 'clarify', 'direct_answer', 'handoff'": 6,
+    "no JSON object": 4
+  },
+  "split": "data/processed/test.jsonl",
+  "tokens": {
+    "completion_mean": 32.9,
+    "prompt_mean": 645.1
+  }
+}

@@ -13,7 +13,11 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from agent_toolcall_sft.data.records import DatasetRecord
-from agent_toolcall_sft.evaluation.prompt import PROMPT_VERSION, render_messages
+from agent_toolcall_sft.evaluation.prompt import (
+    PROMPT_VERSION,
+    build_tool_specs,
+    render_messages,
+)
 
 DECODING_VERSION = "v1"
 
@@ -56,9 +60,14 @@ def load_model(model_id: str, dtype: torch.dtype = torch.float16):
 
 
 def build_prompt(tokenizer, record: DatasetRecord) -> str:
-    """Apply the model's chat template to the frozen prompt."""
+    """Apply the model's chat template, handing it the tools natively.
+
+    Passing `tools=` lets Qwen3 render its own <tools> block, so the base
+    model is asked for output in the format it was trained to produce.
+    """
     return tokenizer.apply_chat_template(
         render_messages(record),
+        tools=build_tool_specs(record.tools),
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=DECODING.enable_thinking,

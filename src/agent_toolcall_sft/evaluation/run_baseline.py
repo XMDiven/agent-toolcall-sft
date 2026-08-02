@@ -10,6 +10,7 @@ JSON so the report can quote it without anyone retyping a number.
 
 import argparse
 import json
+import os
 import statistics
 from dataclasses import asdict
 from pathlib import Path
@@ -80,6 +81,15 @@ def main() -> None:
 
     destination = args.output_dir / args.tag
     destination.mkdir(parents=True, exist_ok=True)
+
+    # Frozen runs are chmod 444 on purpose. Refuse rather than half-overwrite
+    # a baseline someone is still quoting.
+    for name in ("predictions.jsonl", "summary.json"):
+        existing = destination / name
+        if existing.exists() and not os.access(existing, os.W_OK):
+            raise SystemExit(
+                f"{existing} is frozen read-only; rerun with a different --tag"
+            )
 
     with (destination / "predictions.jsonl").open("w", encoding="utf-8") as handle:
         for record, generation, score in zip(

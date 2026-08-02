@@ -7,13 +7,15 @@ from agent_toolcall_sft.data.records import DatasetRecord
 from agent_toolcall_sft.evaluation.parsing import extract_json_block, parse_output
 from agent_toolcall_sft.evaluation.prompt import (
     PROMPT_VERSION,
+    TOOL_DESCRIPTIONS,
+    build_tool_specs,
     render_messages,
-    render_tool_catalog,
 )
 from agent_toolcall_sft.evaluation.scoring import (
     aggregate,
     aggregate_by_domain,
     confusion,
+    is_fully_correct,
     schema_error_taxonomy,
     score_record,
 )
@@ -49,24 +51,31 @@ def make_record(**overrides) -> DatasetRecord:
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_lists_only_the_offered_tools_in_a_stable_order():
-    catalog = render_tool_catalog(["summary_tool", "get_order_status"])
-    assert catalog.index("get_order_status") < catalog.index("summary_tool")
-    assert "create_refund_request" not in catalog
+def test_tool_specs_use_the_native_function_calling_shape():
+    specs = build_tool_specs(["summary_tool", "get_order_status"])
+    assert [s["function"]["name"] for s in specs] == [
+        "get_order_status",
+        "summary_tool",
+    ]
+    assert all(s["type"] == "function" for s in specs)
+    assert "properties" in specs[0]["function"]["parameters"]
 
 
-def test_catalog_covers_every_contract_tool():
-    catalog = render_tool_catalog(sorted(TOOL_ARGUMENT_MODELS))
-    for name in TOOL_ARGUMENT_MODELS:
-        assert name in catalog
+def test_tool_specs_cover_only_the_offered_tools():
+    specs = build_tool_specs(["summary_tool"])
+    assert {s["function"]["name"] for s in specs} == {"summary_tool"}
+
+
+def test_every_contract_tool_has_a_description():
+    assert set(TOOL_DESCRIPTIONS) == set(TOOL_ARGUMENT_MODELS)
 
 
 def test_messages_start_with_the_frozen_system_prompt():
     messages = render_messages(make_record())
     assert messages[0]["role"] == "system"
-    assert "只输出一个 JSON 对象" in messages[0]["content"]
+    assert "clarify" in messages[0]["content"]
     assert messages[1]["content"].startswith("帮我查一下订单")
-    assert PROMPT_VERSION == "v1"
+    assert PROMPT_VERSION == "v2"
 
 
 def test_prompt_never_leaks_the_expected_answer():
@@ -91,11 +100,11 @@ def test_knowledge_only_record_offers_no_support_tool():
             },
         },
     )
-    catalog = render_messages(record)[0]["content"]
+    names = {s["function"]["name"] for s in build_tool_specs(record.tools)}
 
-    assert "get_order_status" not in catalog
-    assert "create_refund_request" not in catalog
-    assert "retrieval_tool" in catalog
+    assert "get_order_status" not in names
+    assert "create_refund_request" not in names
+    assert "retrieval_tool" in names
 
 
 # ---------------------------------------------------------------------------
@@ -445,3 +454,69 @@ def _refund_call():
             },
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Native tool-call protocol
+# ---------------------------------------------------------------------------
+
+
+def test_native_tool_call_block_parses():
+    """Qwen3 emits <tool_call> when tools are passed to the chat template."""
+    raw = (
+        '<tool_call>\n{"name": "get_order_status", '
+        '"arguments": {"order_id": "ORD-603256"}}\n</tool_call>'
+    )
+    result = parse_output(raw)
+
+    assert result.json_ok and result.schema_ok
+    assert result.decision.tool_call.name == "get_order_status"
+
+
+def test_bare_call_object_without_action_is_accepted():
+    """Formatting is not what we are measuring, routing is."""
+    raw = json.dumps(
+        {"name": "get_order_status", "arguments": {"order_id": "ORD-603256"}}
+    )
+    assert parse_output(raw).schema_ok
+
+
+def test_the_old_custom_envelope_still_parses():
+    assert parse_output(json.dumps(GOLD_CALL)).schema_ok
+
+
+def test_non_tool_decisions_still_use_the_plain_json_form():
+    raw = json.dumps({"action": "clarify", "question": "请提供订单号。"})
+    result = parse_output(raw)
+
+    assert result.schema_ok
+    assert result.decision.action == "clarify"
+
+
+def test_end_to_end_accuracy_is_stricter_than_action_accuracy():
+    """Right decision type, wrong tool: a four-way metric calls this correct."""
+    raw = json.dumps(
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "retrieval_tool",
+                "arguments": {"question": "订单"},
+            },
+        }
+    )
+    score = score_record(make_record(), raw)
+    report = aggregate([score])
+
+    assert score.action_correct
+    assert report["action_accuracy"] == 1.0
+    assert report["end_to_end_accuracy"] == 0.0
+
+
+def test_non_tool_decisions_need_only_the_right_action():
+    record = make_record(
+        expected_action="clarify",
+        expected_decision={"action": "clarify", "question": "请提供订单号。"},
+    )
+    raw = json.dumps({"action": "clarify", "question": "请问订单号是多少？"})
+
+    assert is_fully_correct(score_record(record, raw))
