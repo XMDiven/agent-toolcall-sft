@@ -1,25 +1,11 @@
-"""The frozen prompt used for every evaluated model.
+"""Frozen production JSON prompt shared by base and adapter evaluation."""
 
-v2 hands the tool catalogue to the model's own chat template via `tools=`,
-so the base model sees tools in the format it was trained on. v1 asked for a
-custom JSON envelope instead; the baseline it produced under-measured the
-model, because a large share of its failures were envelope formatting rather
-than routing. Fine-tuning would then have been credited for teaching a format
-of our own invention.
-
-Only the three non-tool decisions still need an explicit instruction: native
-tool-calling has no notion of "ask a question instead" or "escalate".
-
-The base model and the fine-tuned adapter must see byte-identical prompts, or
-the comparison between them measures prompt engineering rather than training.
-`PROMPT_VERSION` is recorded in every report so a later change is visible
-instead of silently invalidating an earlier baseline.
-"""
+import json
 
 from agent_toolcall_sft.contracts import TOOL_ARGUMENT_MODELS
 from agent_toolcall_sft.data.records import DatasetRecord
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "production_json_v2"
 
 TOOL_DESCRIPTIONS: dict[str, str] = {
     "retrieval_tool": "从知识库检索资料以回答单点事实性问题。",
@@ -34,9 +20,8 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
 SYSTEM_PROMPT = """\
 你是企业客服系统的工具路由助手。针对用户消息，做出且只做出一个决策。
 
-需要调用工具时，使用工具调用格式，只调用一个工具。
-
-不调用工具时，只输出一个 JSON 对象，形式为以下三种之一：
+只输出一个 JSON 对象，不要输出 Markdown、解释、思考过程或额外文本。四种合法决策为：
+{"action": "tool_call", "tool_call": {"name": "工具名", "arguments": {}}}
 {"action": "clarify", "question": "需要向用户追问的内容"}
 {"action": "direct_answer", "answer": "直接回答的内容"}
 {"action": "handoff", "reason": "转人工的理由"}
@@ -49,32 +34,25 @@ SYSTEM_PROMPT = """\
 - 不需要外部信息即可回应时，用 direct_answer。"""
 
 
-def build_tool_specs(tool_names: list[str]) -> list[dict]:
-    """Describe the offered tools in the OpenAI function-calling shape.
-
-    This is what `apply_chat_template(tools=...)` expects; Qwen3 renders it
-    into its own <tools> block, which is the format the model was trained on.
-    Sorted so two runs never differ by catalogue order alone.
-    """
-    return [
+def render_offered_tools(record: DatasetRecord) -> str:
+    """Render exactly this record's offered tool contracts as stable JSON."""
+    tools = [
         {
-            "type": "function",
-            "function": {
-                "name": name,
-                "description": TOOL_DESCRIPTIONS[name],
-                "parameters": TOOL_ARGUMENT_MODELS[name].model_json_schema(),
-            },
+            "name": name,
+            "description": TOOL_DESCRIPTIONS[name],
+            "parameters": TOOL_ARGUMENT_MODELS[name].model_json_schema(),
         }
-        for name in sorted(tool_names)
+        for name in sorted(record.tools)
     ]
+    return json.dumps(tools, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def render_messages(record: DatasetRecord) -> list[dict[str, str]]:
-    """Render one record into the chat messages handed to the model."""
-    turns = [{"role": "system", "content": SYSTEM_PROMPT}]
+    """Render production messages without relying on template-native tools."""
+    system = f"{SYSTEM_PROMPT}\n\n本次可用工具（完整契约）：\n{render_offered_tools(record)}"
+    turns = [{"role": "system", "content": system}]
     turns.extend(
         {"role": message.role, "content": message.content}
         for message in record.messages
     )
-
     return turns

@@ -6,7 +6,9 @@ change an output lives in `DECODING` and is written into the report, so a later
 change is visible rather than silently invalidating the frozen baseline.
 """
 
+import statistics
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 
 import torch
@@ -15,7 +17,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from agent_toolcall_sft.data.records import DatasetRecord
 from agent_toolcall_sft.evaluation.prompt import (
     PROMPT_VERSION,
-    build_tool_specs,
     render_messages,
 )
 
@@ -60,14 +61,9 @@ def load_model(model_id: str, dtype: torch.dtype = torch.float16):
 
 
 def build_prompt(tokenizer, record: DatasetRecord) -> str:
-    """Apply the model's chat template, handing it the tools natively.
-
-    Passing `tools=` lets Qwen3 render its own <tools> block, so the base
-    model is asked for output in the format it was trained to produce.
-    """
+    """Apply the template to the self-contained production JSON prompt."""
     return tokenizer.apply_chat_template(
         render_messages(record),
-        tools=build_tool_specs(record.tools),
         tokenize=False,
         add_generation_prompt=True,
         enable_thinking=DECODING.enable_thinking,
@@ -75,9 +71,14 @@ def build_prompt(tokenizer, record: DatasetRecord) -> str:
 
 
 @torch.inference_mode()
-def generate_one(model, tokenizer, record: DatasetRecord) -> Generation:
+def generate_one(
+    model,
+    tokenizer,
+    record: DatasetRecord,
+    prompt_builder: Callable = build_prompt,
+) -> Generation:
     """Generate one completion and time it."""
-    prompt = build_prompt(tokenizer, record)
+    prompt = prompt_builder(tokenizer, record)
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     torch.cuda.synchronize()
@@ -104,18 +105,60 @@ def generate_one(model, tokenizer, record: DatasetRecord) -> Generation:
     )
 
 
-def run_split(model, tokenizer, records: list[DatasetRecord]) -> list[Generation]:
+def run_split(
+    model,
+    tokenizer,
+    records: list[DatasetRecord],
+    prompt_builder: Callable = build_prompt,
+) -> list[Generation]:
     """Generate over every record, one at a time, in the given order."""
     torch.cuda.reset_peak_memory_stats()
 
-    return [generate_one(model, tokenizer, record) for record in records]
+    return [
+        generate_one(model, tokenizer, record, prompt_builder=prompt_builder)
+        for record in records
+    ]
 
 
-def environment_fingerprint(model_id: str) -> dict:
+def stride_sample(records: list, limit: int) -> list:
+    """Take a deterministic, evenly spaced smoke subset."""
+    if limit >= len(records):
+        return records
+    step = len(records) / limit
+    return [records[int(index * step)] for index in range(limit)]
+
+
+def summarise_latency(latencies: list[float]) -> dict:
+    ordered = sorted(latencies)
+    return {
+        "p50_ms": round(statistics.median(ordered), 2),
+        "p95_ms": round(ordered[max(0, int(len(ordered) * 0.95) - 1)], 2),
+        "mean_ms": round(statistics.fmean(ordered), 2),
+    }
+
+
+def summarise_generations(generations: list[Generation]) -> dict:
+    """Summarise performance without mixing it with behavior metrics."""
+    return {
+        "latency": summarise_latency([item.latency_ms for item in generations]),
+        "tokens": {
+            "prompt_mean": round(
+                statistics.fmean(item.prompt_tokens for item in generations), 1
+            ),
+            "completion_mean": round(
+                statistics.fmean(item.completion_tokens for item in generations), 1
+            ),
+        },
+    }
+
+
+def environment_fingerprint(
+    model_id: str, prompt_version: str = PROMPT_VERSION
+) -> dict:
     """Everything a reader needs to judge whether a rerun is comparable."""
     return {
         "model_id": model_id,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": prompt_version,
         "decoding_version": DECODING_VERSION,
         "decoding": asdict(DECODING),
         "torch": torch.__version__,

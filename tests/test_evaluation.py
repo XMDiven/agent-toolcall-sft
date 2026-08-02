@@ -8,7 +8,6 @@ from agent_toolcall_sft.evaluation.parsing import extract_json_block, parse_outp
 from agent_toolcall_sft.evaluation.prompt import (
     PROMPT_VERSION,
     TOOL_DESCRIPTIONS,
-    build_tool_specs,
     render_messages,
 )
 from agent_toolcall_sft.evaluation.scoring import (
@@ -51,21 +50,6 @@ def make_record(**overrides) -> DatasetRecord:
 # ---------------------------------------------------------------------------
 
 
-def test_tool_specs_use_the_native_function_calling_shape():
-    specs = build_tool_specs(["summary_tool", "get_order_status"])
-    assert [s["function"]["name"] for s in specs] == [
-        "get_order_status",
-        "summary_tool",
-    ]
-    assert all(s["type"] == "function" for s in specs)
-    assert "properties" in specs[0]["function"]["parameters"]
-
-
-def test_tool_specs_cover_only_the_offered_tools():
-    specs = build_tool_specs(["summary_tool"])
-    assert {s["function"]["name"] for s in specs} == {"summary_tool"}
-
-
 def test_every_contract_tool_has_a_description():
     assert set(TOOL_DESCRIPTIONS) == set(TOOL_ARGUMENT_MODELS)
 
@@ -75,7 +59,7 @@ def test_messages_start_with_the_frozen_system_prompt():
     assert messages[0]["role"] == "system"
     assert "clarify" in messages[0]["content"]
     assert messages[1]["content"].startswith("帮我查一下订单")
-    assert PROMPT_VERSION == "v2"
+    assert PROMPT_VERSION == "production_json_v2"
 
 
 def test_prompt_never_leaks_the_expected_answer():
@@ -100,11 +84,11 @@ def test_knowledge_only_record_offers_no_support_tool():
             },
         },
     )
-    names = {s["function"]["name"] for s in build_tool_specs(record.tools)}
+    rendered = json.dumps(render_messages(record), ensure_ascii=False)
 
-    assert "get_order_status" not in names
-    assert "create_refund_request" not in names
-    assert "retrieval_tool" in names
+    assert "get_order_status" not in rendered
+    assert "create_refund_request" not in rendered
+    assert "retrieval_tool" in rendered
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +493,9 @@ def test_end_to_end_accuracy_is_stricter_than_action_accuracy():
 
     assert score.action_correct
     assert report["action_accuracy"] == 1.0
+    assert report["behavior_accuracy"] == 0.0
     assert report["end_to_end_accuracy"] == 0.0
+    assert report["end_to_end_accuracy"] == report["behavior_accuracy"]
 
 
 def test_non_tool_decisions_need_only_the_right_action():

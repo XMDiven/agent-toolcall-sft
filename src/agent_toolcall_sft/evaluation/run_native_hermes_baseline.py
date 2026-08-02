@@ -1,4 +1,4 @@
-"""Freeze the full-split production JSON baseline without overwriting evidence."""
+"""Freeze the native Hermes auxiliary baseline on gold tool-call records."""
 
 import argparse
 import json
@@ -13,7 +13,12 @@ from agent_toolcall_sft.evaluation.evidence import (
     verify_manifest_records,
     write_frozen_evidence,
 )
-from agent_toolcall_sft.evaluation.prompt import PROMPT_VERSION
+from agent_toolcall_sft.evaluation.native_hermes import (
+    NATIVE_HERMES_PROMPT_VERSION,
+    NATIVE_SELECTION_RULE,
+    build_native_prompt,
+    select_native_records,
+)
 from agent_toolcall_sft.evaluation.runner import (
     DECODING,
     DECODING_VERSION,
@@ -24,8 +29,7 @@ from agent_toolcall_sft.evaluation.runner import (
     summarise_generations,
 )
 from agent_toolcall_sft.evaluation.scoring import (
-    aggregate_by_domain,
-    confusion,
+    native_auxiliary_metrics,
     schema_error_taxonomy,
     score_record,
 )
@@ -40,8 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--split", type=Path, default=DEFAULT_SPLIT)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--limit", type=int, default=None, help="smoke-test subset")
-    parser.add_argument("--tag", default="production-json-v2")
+    parser.add_argument("--limit", type=int, default=None, help="smoke subset after selection")
+    parser.add_argument("--tag", default="native-hermes-v1")
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     return parser
 
@@ -51,37 +55,43 @@ def execute(args) -> Path:
     destination = reserve_destination(args.output_dir / args.tag)
     verify_manifest_records(args.manifest, all_records)
 
-    records = all_records
-    if args.limit:
-        records = stride_sample(records, args.limit)
-    print(f"loaded {len(records)} records from {args.split}")
+    selected = select_native_records(all_records)
+    records = stride_sample(selected, args.limit) if args.limit else selected
+    print(
+        f"selected {len(selected)} gold tool-call records; "
+        f"evaluating {len(records)} from {args.split}"
+    )
 
     model, tokenizer = load_model(args.model)
     print(f"loaded {args.model}")
-    generations = run_split(model, tokenizer, records)
+    generations = run_split(
+        model, tokenizer, records, prompt_builder=build_native_prompt
+    )
     scores = [
         score_record(record, generation.raw_output)
         for record, generation in zip(records, generations, strict=True)
     ]
 
-    performance = summarise_generations(generations)
     summary = {
-        "protocol": "production_json",
-        "prompt_version": PROMPT_VERSION,
-        "selection_rule": "all test records; --limit is smoke-only",
+        "protocol": "native_hermes_auxiliary",
+        "prompt_version": NATIVE_HERMES_PROMPT_VERSION,
+        "selection_rule": NATIVE_SELECTION_RULE,
         "split": str(args.split),
-        "records": len(records),
-        **performance,
-        "metrics": aggregate_by_domain(scores),
-        "confusion": confusion(scores),
+        "source_records": len(all_records),
+        "selected_records": len(selected),
+        "evaluated_records": len(records),
+        **summarise_generations(generations),
+        "auxiliary_metrics": native_auxiliary_metrics(scores),
         "schema_errors": schema_error_taxonomy(scores),
     }
-    environment = environment_fingerprint(args.model)
+    environment = environment_fingerprint(
+        args.model, prompt_version=NATIVE_HERMES_PROMPT_VERSION
+    )
     metadata = build_run_metadata(
         manifest_path=args.manifest,
         records=all_records,
         model_source=args.model,
-        prompt_version=PROMPT_VERSION,
+        prompt_version=NATIVE_HERMES_PROMPT_VERSION,
         decoding_version=DECODING_VERSION,
         decoding=asdict(DECODING),
         environment=environment,
@@ -92,7 +102,7 @@ def execute(args) -> Path:
         summary=summary,
         metadata=metadata,
     )
-    print(json.dumps(summary["metrics"]["overall"], ensure_ascii=False, indent=2))
+    print(json.dumps(summary["auxiliary_metrics"], ensure_ascii=False, indent=2))
     print(f"\nwrote frozen evidence to {destination}")
     return destination
 

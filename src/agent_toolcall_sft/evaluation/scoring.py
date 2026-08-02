@@ -142,14 +142,16 @@ def aggregate(scores: list[RecordScore]) -> dict:
     # one that shifts if the mix does.
     misuse_pool = [s for s in scores if not _gold_is_dangerous_write(s)]
 
+    behavior_accuracy = _rate(sum(is_fully_correct(s) for s in scores), total)
+
     return {
         "n": total,
         "json_valid_rate": _rate(sum(s.json_ok for s in scores), total),
         "schema_valid_rate": _rate(sum(s.schema_ok for s in scores), total),
         "action_accuracy": _rate(sum(s.action_correct for s in scores), total),
-        "end_to_end_accuracy": _rate(
-            sum(is_fully_correct(s) for s in scores), total
-        ),
+        "behavior_accuracy": behavior_accuracy,
+        # Compatibility only. New reports and claims use behavior_accuracy.
+        "end_to_end_accuracy": behavior_accuracy,
         "tool_name_accuracy": _rate(
             sum(bool(s.tool_name_correct) for s in gold_tool_calls),
             len(gold_tool_calls),
@@ -191,6 +193,28 @@ def aggregate_by_domain(scores: list[RecordScore]) -> dict:
         report[domain] = aggregate([s for s in scores if s.domain == domain])
 
     return report
+
+
+def native_auxiliary_metrics(scores: list[RecordScore]) -> dict:
+    """Report native tool-routing diagnostics without a main behavior metric."""
+    total = len(scores)
+    return {
+        "n": total,
+        "json_valid_rate": _rate(sum(score.json_ok for score in scores), total),
+        "schema_valid_rate": _rate(sum(score.schema_ok for score in scores), total),
+        "tool_name_accuracy": _rate(
+            sum(bool(score.tool_name_correct) for score in scores), total
+        ),
+        "argument_exact_match": _rate(
+            sum(bool(score.arguments_exact) for score in scores), total
+        ),
+        "argument_match_ignoring_edge_punctuation": _rate(
+            sum(bool(score.arguments_normalized) for score in scores), total
+        ),
+        "off_menu_call_rate": _rate(
+            sum(score.off_menu_call for score in scores), total
+        ),
+    }
 
 
 def schema_error_taxonomy(scores: list[RecordScore]) -> dict[str, int]:
