@@ -12,6 +12,11 @@
       "test|valid": 0,
       "train|valid": 0
     },
+    "shared_parameterized_hashes": {
+      "test|train": 0,
+      "test|valid": 0,
+      "train|valid": 0
+    },
     "shared_scenario_families": {
       "test|train": [
         "ambiguous_refund_reason",
@@ -120,7 +125,7 @@
         "ticket_creation": 31
       },
       "count": 500,
-      "sha256": "f34c4fc8e411cacdcc0276bb243ece9cf5a8fc5641b4aee0c0d14580356410ce",
+      "sha256": "d620a8b4d848916c57d0a93da8bb12f9851ee1aed41b806ef90edd8f7059b4eb",
       "template_keys": 190
     },
     "train": {
@@ -156,7 +161,7 @@
         "ticket_creation": 125
       },
       "count": 2000,
-      "sha256": "06e66064fb0a7868440b9e98cdbfe3121542620c261cdec603097206cdd76d55",
+      "sha256": "feedc1d067bb826e7e2e27988a9f01600e01ef66cfb6129a8082ce22cfe91547",
       "template_keys": 467
     },
     "valid": {
@@ -192,7 +197,7 @@
         "ticket_creation": 19
       },
       "count": 300,
-      "sha256": "72107d7cbdebc82322158fc238529310d2472fbbb0ad8c2f8b58c6a506e66193",
+      "sha256": "ecc0021fcee3b55af996a68b5f43e005480db02b195d686ed9df25691480111a",
       "template_keys": 136
     }
   },
