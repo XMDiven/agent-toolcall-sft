@@ -1,5 +1,6 @@
 """The native Hermes auxiliary protocol stays separate from production JSON."""
 
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -21,6 +22,14 @@ from agent_toolcall_sft.evaluation.run_native_hermes_baseline import (
 )
 from agent_toolcall_sft.evaluation.runner import Generation
 from agent_toolcall_sft.evaluation.scoring import native_auxiliary_metrics, score_record
+
+
+@pytest.fixture(autouse=True)
+def _clean_worktree(monkeypatch):
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence._git_status_porcelain",
+        lambda: "",
+    )
 
 
 def test_native_prompt_uses_chat_template_tools_argument():
@@ -67,7 +76,15 @@ def test_native_metrics_do_not_publish_main_behavior_accuracy():
 
 
 def test_native_default_tag_cannot_be_confused_with_production():
-    assert build_parser().parse_args([]).tag == "native-hermes-v1"
+    args = build_parser().parse_args([])
+    assert args.tag == "native-hermes-v1"
+    assert args.revision is None
+
+
+@pytest.mark.parametrize("limit", ["0", "-1"])
+def test_native_cli_rejects_non_positive_limit(limit):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["--limit", limit])
 
 
 def _native_args(tmp_path, records, *, tag="native", limit=None, valid=True):
@@ -85,6 +102,7 @@ def _native_args(tmp_path, records, *, tag="native", limit=None, valid=True):
     )
     return SimpleNamespace(
         model="remote/model",
+        revision="b" * 40,
         split=split,
         manifest=manifest,
         limit=limit,
@@ -108,7 +126,7 @@ def test_native_execute_selects_gold_calls_before_applying_limit(
 
     monkeypatch.setattr(
         "agent_toolcall_sft.evaluation.evidence.load_model",
-        lambda model: ("model", "tokenizer"),
+        lambda model, revision=None: ("model", "tokenizer"),
     )
 
     def fake_run(model, tokenizer, records, *, prompt_builder):
@@ -126,6 +144,7 @@ def test_native_execute_selects_gold_calls_before_applying_limit(
 
     destination = execute(args)
     summary = json.loads((destination / "summary.json").read_text())
+    metadata = json.loads((destination / "metadata.json").read_text())
 
     assert seen["ids"] == ["second-tool"]
     assert summary["selection_rule"] == 'expected_action == "tool_call"'
@@ -136,13 +155,49 @@ def test_native_execute_selects_gold_calls_before_applying_limit(
     assert set(summary["tokens"]) == {"prompt_mean", "completion_mean"}
     assert "schema_valid_rate" in summary["auxiliary_metrics"]
     assert "behavior_accuracy" not in summary["auxiliary_metrics"]
+    expected_ids = ["second-tool"]
+    expected_hash = hashlib.sha256(
+        json.dumps(expected_ids, separators=(",", ":")).encode()
+    ).hexdigest()
+    assert metadata["evaluation_selection"] == {
+        "source_records": 3,
+        "selected_records": 2,
+        "evaluated_records": 1,
+        "limit": 1,
+        "record_ids": expected_ids,
+        "record_ids_sha256": expected_hash,
+    }
+    assert metadata["worktree_clean"] is True
+
+
+def test_native_formal_tag_rejects_limit_before_model_load_or_directory(
+    tmp_path, monkeypatch
+):
+    args = _native_args(
+        tmp_path,
+        [make_record()],
+        tag="native-hermes-v1",
+        limit=1,
+    )
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.load_model",
+        lambda *_args, **_kwargs: pytest.fail("formal limited run must not load"),
+    )
+
+    with pytest.raises(ValueError, match="different --tag"):
+        execute(args)
+
+    assert not (args.output_dir / args.tag).exists()
 
 
 def test_native_execute_rejects_existing_destination_before_model_load(
     tmp_path, monkeypatch
 ):
     args = _native_args(tmp_path, [make_record()])
-    (args.output_dir / args.tag).mkdir(parents=True)
+    destination = args.output_dir / args.tag
+    destination.mkdir(parents=True)
+    sentinel = destination / "sentinel.txt"
+    sentinel.write_text("must survive", encoding="utf-8")
     monkeypatch.setattr(
         "agent_toolcall_sft.evaluation.evidence.load_model",
         lambda model: pytest.fail("model must not load for an existing tag"),
@@ -150,6 +205,8 @@ def test_native_execute_rejects_existing_destination_before_model_load(
 
     with pytest.raises(EvidenceExistsError, match="different --tag"):
         execute(args)
+
+    assert sentinel.read_text(encoding="utf-8") == "must survive"
 
 
 def test_native_execute_manifest_mismatch_loads_no_model_and_reserves_no_tag(

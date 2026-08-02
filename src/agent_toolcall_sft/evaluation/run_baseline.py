@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from agent_toolcall_sft.data.records import DatasetRecord
-from agent_toolcall_sft.evaluation.evidence import execute_frozen_run
+from agent_toolcall_sft.evaluation.evidence import execute_frozen_run, positive_int
 from agent_toolcall_sft.evaluation.prompt import PROMPT_VERSION
 from agent_toolcall_sft.evaluation.runner import build_prompt
 from agent_toolcall_sft.evaluation.scoring import (
@@ -22,9 +22,12 @@ DEFAULT_MANIFEST = Path("data/manifests/split_v2.json")
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--revision")
     parser.add_argument("--split", type=Path, default=DEFAULT_SPLIT)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--limit", type=int, default=None, help="smoke-test subset")
+    parser.add_argument(
+        "--limit", type=positive_int, default=None, help="smoke-test subset"
+    )
     parser.add_argument("--tag", default="production-json-v2")
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts"))
     return parser

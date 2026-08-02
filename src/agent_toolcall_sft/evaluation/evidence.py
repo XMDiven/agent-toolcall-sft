@@ -1,12 +1,17 @@
 """Reserve, describe, and freeze reproducible baseline evidence."""
 
+import argparse
 import hashlib
 import importlib.metadata
 import json
 import os
 import platform
+import re
 import subprocess
+import tempfile
+import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 
@@ -32,10 +37,20 @@ _MODEL_METADATA_FILES = (
     "model.safetensors.index.json",
 )
 _CORE_PACKAGES = ("torch", "transformers", "pydantic", "jsonschema")
+_COMMIT_REVISION = re.compile(r"[0-9a-fA-F]{40}")
+_FORMAL_RUN_TAGS = frozenset({"production-json-v2", "native-hermes-v1"})
 
 
 class EvidenceExistsError(RuntimeError):
     """A run tag is already reserved and must never be overwritten."""
+
+
+def positive_int(value: str) -> int:
+    """Parse a strictly positive smoke-test limit."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
 
 
 def sha256_file(path: Path) -> str:
@@ -56,6 +71,100 @@ def reserve_destination(path: Path) -> Path:
             f"{path} already exists; rerun with a different --tag"
         ) from error
     return path
+
+
+def _path_exists(path: Path) -> bool:
+    """Treat broken symlinks as occupied evidence paths."""
+    return os.path.lexists(path)
+
+
+def _cleanup_owned_staging(staging: Path, parent: Path, prefix: str) -> None:
+    """Remove only a validated staging directory created for this run."""
+    if not staging.exists() and not staging.is_symlink():
+        return
+    if staging.parent.resolve() != parent.resolve() or not staging.name.startswith(
+        prefix
+    ):
+        raise RuntimeError(f"refusing to clean unowned staging path: {staging}")
+    if staging.is_symlink():
+        raise RuntimeError(f"refusing to follow staging symlink: {staging}")
+
+    staging.chmod(0o700)
+    for root, directories, files in os.walk(staging, topdown=False, followlinks=False):
+        root_path = Path(root)
+        root_path.chmod(0o700)
+        for name in files:
+            path = root_path / name
+            if path.is_symlink():
+                path.unlink()
+            else:
+                path.chmod(0o600)
+                path.unlink()
+        for name in directories:
+            path = root_path / name
+            if path.is_symlink():
+                path.unlink()
+            else:
+                path.chmod(0o700)
+                path.rmdir()
+    staging.rmdir()
+
+
+def _remove_owned_lock(lock: Path, token: str) -> None:
+    try:
+        if lock.read_text(encoding="utf-8") == token:
+            lock.unlink()
+    except FileNotFoundError:
+        pass
+
+
+@contextmanager
+def staged_evidence_destination(final: Path):
+    """Hold an exclusive sibling lock and atomically publish one frozen run.
+
+    The lock coordinates writers that use this context manager. A second
+    existence check immediately before rename protects an externally created
+    final path without claiming cross-process no-replace semantics.
+    """
+    parent = final.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    if _path_exists(final):
+        raise EvidenceExistsError(
+            f"{final} already exists; rerun with a different --tag"
+        )
+
+    lock = parent / f".{final.name}.lock"
+    token = uuid.uuid4().hex
+    try:
+        with lock.open("x", encoding="utf-8") as handle:
+            handle.write(token)
+    except FileExistsError as error:
+        raise EvidenceExistsError(
+            f"{lock} already exists; a prior run may have been interrupted; "
+            "inspect it before removing it"
+        ) from error
+
+    prefix = f".{final.name}.staging-"
+    staging: Path | None = None
+    try:
+        if _path_exists(final):
+            raise EvidenceExistsError(
+                f"{final} appeared while acquiring the lock; refusing to overwrite it"
+            )
+        staging = Path(tempfile.mkdtemp(prefix=prefix, dir=parent))
+        yield staging
+        if _path_exists(final):
+            raise EvidenceExistsError(
+                f"{final} appeared before publish; refusing to overwrite it"
+            )
+        staging.rename(final)
+        staging = None
+    except BaseException:
+        if staging is not None:
+            _cleanup_owned_staging(staging, parent, prefix)
+        raise
+    finally:
+        _remove_owned_lock(lock, token)
 
 
 def verify_manifest_records(
@@ -92,13 +201,68 @@ def _model_file_hashes(model_source: str) -> tuple[dict[str, str], str]:
     if not model_path.is_dir():
         return {}, "unavailable_remote_source"
 
-    candidates = [model_path / name for name in _MODEL_METADATA_FILES]
-    candidates.extend(sorted(model_path.glob("*.safetensors")))
     hashes: dict[str, str] = {}
-    for path in candidates:
-        if path.is_file() and path.name not in hashes:
-            hashes[path.name] = sha256_file(path)
+    preferred = [model_path / name for name in _MODEL_METADATA_FILES]
+    preferred.extend(sorted(model_path.glob("*.safetensors")))
+    for path in preferred:
+        if path.is_file():
+            hashes[path.relative_to(model_path).as_posix()] = sha256_file(path)
     return hashes, "available"
+
+
+def validate_model_source(model_source: str, revision: str | None) -> bool:
+    """Return whether the source is local, rejecting mutable remote revisions."""
+    if Path(model_source).is_dir():
+        return True
+    if revision is None or _COMMIT_REVISION.fullmatch(revision) is None:
+        raise ValueError(
+            "remote model --revision must be a 40-character hexadecimal commit SHA"
+        )
+    return False
+
+
+def validate_run_preconditions(args) -> None:
+    """Reject mutable sources and truncated formal runs before side effects."""
+    validate_model_source(args.model, args.revision)
+    if args.limit is not None and args.tag in _FORMAL_RUN_TAGS:
+        raise ValueError(
+            f"--limit cannot use formal tag {args.tag!r}; pass a different --tag"
+        )
+    if _git_status_porcelain():
+        raise RuntimeError(
+            "Git worktree must be clean before a frozen evaluation run"
+        )
+
+
+def _git_status_porcelain() -> str:
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
+
+
+def _evaluation_selection(
+    *,
+    source_records: int,
+    selected_records: int,
+    records: list[DatasetRecord],
+    limit: int | None,
+) -> dict:
+    record_ids = [record.id for record in records]
+    encoded_ids = json.dumps(
+        record_ids, ensure_ascii=False, separators=(",", ":")
+    ).encode()
+    return {
+        "source_records": source_records,
+        "selected_records": selected_records,
+        "evaluated_records": len(records),
+        "limit": limit,
+        "record_ids": record_ids,
+        "record_ids_sha256": hashlib.sha256(encoded_ids).hexdigest(),
+    }
 
 
 def _package_versions() -> dict[str, str]:
@@ -126,15 +290,20 @@ def build_run_metadata(
     manifest_path: Path,
     records: list[DatasetRecord],
     model_source: str,
+    model_revision: str | None,
     prompt_version: str,
     decoding_version: str,
     decoding: dict,
     environment: dict,
+    worktree_clean: bool,
+    evaluation_selection: dict | None = None,
 ) -> dict:
     """Capture immutable inputs and the execution environment for one run."""
     model_hashes, model_hashes_status = _model_file_hashes(model_source)
-    return {
+    is_local = Path(model_source).is_dir()
+    metadata = {
         "git_commit": _git_commit(),
+        "worktree_clean": worktree_clean,
         "manifest": {
             "path": str(manifest_path),
             "sha256": sha256_file(manifest_path),
@@ -142,6 +311,11 @@ def build_run_metadata(
         "test_records": _split_summary(records),
         "model": {
             "source": model_source,
+            "revision": model_revision,
+            "source_type": "local_directory" if is_local else "remote_repository",
+            "revision_status": (
+                "not_applicable_local_directory" if is_local else "pinned_commit"
+            ),
             "file_hashes": model_hashes,
             "file_hashes_status": model_hashes_status,
         },
@@ -156,6 +330,9 @@ def build_run_metadata(
         },
         "environment": environment,
     }
+    if evaluation_selection is not None:
+        metadata["evaluation_selection"] = evaluation_selection
+    return metadata
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -236,51 +413,64 @@ def execute_frozen_run(
     summary_builder: Callable[..., dict],
 ) -> Path:
     """Execute the shared, fail-closed lifecycle for one frozen protocol."""
+    validate_run_preconditions(args)
     all_records = read_records(args.split)
     verify_manifest_records(args.manifest, all_records)
-    destination = reserve_destination(args.output_dir / args.tag)
+    final = args.output_dir / args.tag
+    with staged_evidence_destination(final) as staging:
+        selected = selector(all_records)
+        records = (
+            stride_sample(selected, args.limit)
+            if args.limit is not None
+            else selected
+        )
+        print(
+            f"selected {len(selected)} records; evaluating {len(records)} "
+            f"from {args.split}"
+        )
 
-    selected = selector(all_records)
-    records = stride_sample(selected, args.limit) if args.limit else selected
-    print(
-        f"selected {len(selected)} records; evaluating {len(records)} "
-        f"from {args.split}"
-    )
-
-    model, tokenizer = load_model(args.model)
-    print(f"loaded {args.model}")
-    generations = run_split(
-        model, tokenizer, records, prompt_builder=prompt_builder
-    )
-    scores = [
-        score_record(record, generation.raw_output)
-        for record, generation in zip(records, generations, strict=True)
-    ]
-    performance = summarise_generations(generations)
-    summary = summary_builder(
-        split=str(args.split),
-        source_records=len(all_records),
-        selected_records=len(selected),
-        evaluated_records=len(records),
-        scores=scores,
-        performance=performance,
-    )
-    metadata = build_run_metadata(
-        manifest_path=args.manifest,
-        records=all_records,
-        model_source=args.model,
-        prompt_version=prompt_version,
-        decoding_version=DECODING_VERSION,
-        decoding=asdict(DECODING),
-        environment=environment_fingerprint(
-            args.model, prompt_version=prompt_version
-        ),
-    )
-    write_frozen_evidence(
-        destination,
-        predictions=build_prediction_rows(records, generations, scores),
-        summary=summary,
-        metadata=metadata,
-    )
-    print(f"wrote frozen evidence to {destination}")
-    return destination
+        model, tokenizer = load_model(args.model, revision=args.revision)
+        print(f"loaded {args.model}")
+        generations = run_split(
+            model, tokenizer, records, prompt_builder=prompt_builder
+        )
+        scores = [
+            score_record(record, generation.raw_output)
+            for record, generation in zip(records, generations, strict=True)
+        ]
+        performance = summarise_generations(generations)
+        summary = summary_builder(
+            split=str(args.split),
+            source_records=len(all_records),
+            selected_records=len(selected),
+            evaluated_records=len(records),
+            scores=scores,
+            performance=performance,
+        )
+        metadata = build_run_metadata(
+            manifest_path=args.manifest,
+            records=all_records,
+            model_source=args.model,
+            model_revision=args.revision,
+            prompt_version=prompt_version,
+            decoding_version=DECODING_VERSION,
+            decoding=asdict(DECODING),
+            environment=environment_fingerprint(
+                args.model, prompt_version=prompt_version
+            ),
+            worktree_clean=True,
+            evaluation_selection=_evaluation_selection(
+                source_records=len(all_records),
+                selected_records=len(selected),
+                records=records,
+                limit=args.limit,
+            ),
+        )
+        write_frozen_evidence(
+            staging,
+            predictions=build_prediction_rows(records, generations, scores),
+            summary=summary,
+            metadata=metadata,
+        )
+    print(f"wrote frozen evidence to {final}")
+    return final

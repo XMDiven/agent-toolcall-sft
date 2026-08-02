@@ -49,11 +49,15 @@ class Generation:
     completion_tokens: int
 
 
-def load_model(model_id: str, dtype: torch.dtype = torch.float16):
+def load_model(
+    model_id: str,
+    revision: str | None = None,
+    dtype: torch.dtype = torch.float16,
+):
     """Load a causal LM onto the GPU in eval mode."""
-    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
     model = AutoModelForCausalLM.from_pretrained(
-        model_id, dtype=dtype, device_map="cuda"
+        model_id, revision=revision, dtype=dtype, device_map="cuda"
     )
     model.eval()
 
