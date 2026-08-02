@@ -1,33 +1,17 @@
 """Freeze the full-split production JSON baseline without overwriting evidence."""
 
 import argparse
-import json
-from dataclasses import asdict
 from pathlib import Path
 
-from agent_toolcall_sft.data.records import read_records
-from agent_toolcall_sft.evaluation.evidence import (
-    build_prediction_rows,
-    build_run_metadata,
-    reserve_destination,
-    verify_manifest_records,
-    write_frozen_evidence,
-)
+from agent_toolcall_sft.data.records import DatasetRecord
+from agent_toolcall_sft.evaluation.evidence import execute_frozen_run
 from agent_toolcall_sft.evaluation.prompt import PROMPT_VERSION
-from agent_toolcall_sft.evaluation.runner import (
-    DECODING,
-    DECODING_VERSION,
-    environment_fingerprint,
-    load_model,
-    run_split,
-    stride_sample,
-    summarise_generations,
-)
+from agent_toolcall_sft.evaluation.runner import build_prompt
 from agent_toolcall_sft.evaluation.scoring import (
+    RecordScore,
     aggregate_by_domain,
     confusion,
     schema_error_taxonomy,
-    score_record,
 )
 
 DEFAULT_MODEL = "Qwen/Qwen3-1.7B"
@@ -46,55 +30,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def execute(args) -> Path:
-    all_records = read_records(args.split)
-    destination = reserve_destination(args.output_dir / args.tag)
-    verify_manifest_records(args.manifest, all_records)
+def select_production_records(
+    records: list[DatasetRecord],
+) -> list[DatasetRecord]:
+    return records
 
-    records = all_records
-    if args.limit:
-        records = stride_sample(records, args.limit)
-    print(f"loaded {len(records)} records from {args.split}")
 
-    model, tokenizer = load_model(args.model)
-    print(f"loaded {args.model}")
-    generations = run_split(model, tokenizer, records)
-    scores = [
-        score_record(record, generation.raw_output)
-        for record, generation in zip(records, generations, strict=True)
-    ]
-
-    performance = summarise_generations(generations)
-    summary = {
+def build_production_summary(
+    *,
+    split: str,
+    source_records: int,
+    selected_records: int,
+    evaluated_records: int,
+    scores: list[RecordScore],
+    performance: dict,
+) -> dict:
+    return {
         "protocol": "production_json",
         "prompt_version": PROMPT_VERSION,
         "selection_rule": "all test records; --limit is smoke-only",
-        "split": str(args.split),
-        "records": len(records),
+        "split": split,
+        "source_records": source_records,
+        "selected_records": selected_records,
+        "evaluated_records": evaluated_records,
+        "records": evaluated_records,
         **performance,
         "metrics": aggregate_by_domain(scores),
         "confusion": confusion(scores),
         "schema_errors": schema_error_taxonomy(scores),
     }
-    environment = environment_fingerprint(args.model)
-    metadata = build_run_metadata(
-        manifest_path=args.manifest,
-        records=all_records,
-        model_source=args.model,
+
+
+def execute(args) -> Path:
+    return execute_frozen_run(
+        args,
+        selector=select_production_records,
+        prompt_builder=build_prompt,
         prompt_version=PROMPT_VERSION,
-        decoding_version=DECODING_VERSION,
-        decoding=asdict(DECODING),
-        environment=environment,
+        summary_builder=build_production_summary,
     )
-    write_frozen_evidence(
-        destination,
-        predictions=build_prediction_rows(records, generations, scores),
-        summary=summary,
-        metadata=metadata,
-    )
-    print(json.dumps(summary["metrics"]["overall"], ensure_ascii=False, indent=2))
-    print(f"\nwrote frozen evidence to {destination}")
-    return destination
 
 
 def main() -> None:

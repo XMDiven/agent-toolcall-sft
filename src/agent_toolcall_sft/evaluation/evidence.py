@@ -6,13 +6,23 @@ import json
 import os
 import platform
 import subprocess
+from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
 from agent_toolcall_sft.data.corpus import _split_summary
-from agent_toolcall_sft.data.records import DatasetRecord
-from agent_toolcall_sft.evaluation.runner import Generation
-from agent_toolcall_sft.evaluation.scoring import RecordScore
+from agent_toolcall_sft.data.records import DatasetRecord, read_records
+from agent_toolcall_sft.evaluation.runner import (
+    DECODING,
+    DECODING_VERSION,
+    Generation,
+    environment_fingerprint,
+    load_model,
+    run_split,
+    stride_sample,
+    summarise_generations,
+)
+from agent_toolcall_sft.evaluation.scoring import RecordScore, score_record
 
 _MODEL_METADATA_FILES = (
     "config.json",
@@ -215,3 +225,62 @@ def build_prediction_rows(
             }
         )
     return rows
+
+
+def execute_frozen_run(
+    args,
+    *,
+    selector: Callable[[list[DatasetRecord]], list[DatasetRecord]],
+    prompt_builder: Callable,
+    prompt_version: str,
+    summary_builder: Callable[..., dict],
+) -> Path:
+    """Execute the shared, fail-closed lifecycle for one frozen protocol."""
+    all_records = read_records(args.split)
+    verify_manifest_records(args.manifest, all_records)
+    destination = reserve_destination(args.output_dir / args.tag)
+
+    selected = selector(all_records)
+    records = stride_sample(selected, args.limit) if args.limit else selected
+    print(
+        f"selected {len(selected)} records; evaluating {len(records)} "
+        f"from {args.split}"
+    )
+
+    model, tokenizer = load_model(args.model)
+    print(f"loaded {args.model}")
+    generations = run_split(
+        model, tokenizer, records, prompt_builder=prompt_builder
+    )
+    scores = [
+        score_record(record, generation.raw_output)
+        for record, generation in zip(records, generations, strict=True)
+    ]
+    performance = summarise_generations(generations)
+    summary = summary_builder(
+        split=str(args.split),
+        source_records=len(all_records),
+        selected_records=len(selected),
+        evaluated_records=len(records),
+        scores=scores,
+        performance=performance,
+    )
+    metadata = build_run_metadata(
+        manifest_path=args.manifest,
+        records=all_records,
+        model_source=args.model,
+        prompt_version=prompt_version,
+        decoding_version=DECODING_VERSION,
+        decoding=asdict(DECODING),
+        environment=environment_fingerprint(
+            args.model, prompt_version=prompt_version
+        ),
+    )
+    write_frozen_evidence(
+        destination,
+        predictions=build_prediction_rows(records, generations, scores),
+        summary=summary,
+        metadata=metadata,
+    )
+    print(f"wrote frozen evidence to {destination}")
+    return destination

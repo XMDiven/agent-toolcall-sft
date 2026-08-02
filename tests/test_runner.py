@@ -90,7 +90,7 @@ def test_production_cli_reserves_and_verifies_before_model_load(
         encoding="utf-8",
     )
     monkeypatch.setattr(
-        "agent_toolcall_sft.evaluation.run_baseline.load_model",
+        "agent_toolcall_sft.evaluation.evidence.load_model",
         lambda *_: pytest.fail("model loaded before manifest verification"),
     )
     args = SimpleNamespace(
@@ -105,7 +105,7 @@ def test_production_cli_reserves_and_verifies_before_model_load(
     with pytest.raises(ValueError, match="does not match manifest"):
         execute(args)
 
-    assert (args.output_dir / args.tag).is_dir()
+    assert not (args.output_dir / args.tag).exists()
 
 
 def test_production_default_tag_names_the_protocol():
