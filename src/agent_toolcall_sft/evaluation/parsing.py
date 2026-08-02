@@ -41,6 +41,31 @@ class _JsonCandidate:
     start: int
     block: str
     complete: bool
+    array_depth: int
+
+
+def _array_depth_before(text: str, stop: int) -> int:
+    """Count open JSON-array brackets before an object candidate."""
+    depth = 0
+    in_string = False
+    escaped = False
+    for char in text[:stop]:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "[":
+            depth += 1
+        elif char == "]" and depth:
+            depth -= 1
+    return depth
 
 
 def _scan_json_objects(text: str, *, offset: int = 0) -> list[_JsonCandidate]:
@@ -85,12 +110,22 @@ def _scan_json_objects(text: str, *, offset: int = 0) -> list[_JsonCandidate]:
 
         if end is None:
             candidates.append(
-                _JsonCandidate(offset + start, text[start:], complete=False)
+                _JsonCandidate(
+                    offset + start,
+                    text[start:],
+                    complete=False,
+                    array_depth=_array_depth_before(text, start),
+                )
             )
             break
 
         candidates.append(
-            _JsonCandidate(offset + start, text[start:end], complete=True)
+            _JsonCandidate(
+                offset + start,
+                text[start:end],
+                complete=True,
+                array_depth=_array_depth_before(text, start),
+            )
         )
         index = end
 
@@ -187,6 +222,15 @@ def parse_output(raw: str) -> ParseResult:
             schema_ok=False,
             raw_called_tools=raw_called_tools,
             error=str(first_json_error or "top level is not an object"),
+        )
+
+    if any(candidate.array_depth for candidate in candidates):
+        return ParseResult(
+            raw,
+            json_ok=False,
+            schema_ok=False,
+            raw_called_tools=raw_called_tools,
+            error="top level is not an object",
         )
 
     if len(payloads) > 1:

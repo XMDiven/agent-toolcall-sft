@@ -41,7 +41,6 @@ _MODEL_METADATA_FILES = (
 )
 _CORE_PACKAGES = ("torch", "transformers", "pydantic", "jsonschema")
 _COMMIT_REVISION = re.compile(r"[0-9a-fA-F]{40}")
-_FORMAL_RUN_TAGS = frozenset({"production-json-v2", "native-hermes-v1"})
 _MODEL_FILE_SUFFIXES = frozenset(
     {
         ".bin",
@@ -185,9 +184,8 @@ def _atomic_publish_noreplace(staging: Path, final: Path) -> None:
 def staged_evidence_destination(final: Path):
     """Hold an exclusive sibling lock and atomically publish one frozen run.
 
-    The lock coordinates writers that use this context manager. A second
-    existence check immediately before rename protects an externally created
-    final path without claiming cross-process no-replace semantics.
+    The lock coordinates cooperating writers. The OS-level no-replace rename
+    also rejects a final path created by any process during the publish race.
     """
     parent = final.parent
     parent.mkdir(parents=True, exist_ok=True)
@@ -311,9 +309,9 @@ def validate_model_source(model_source: str, revision: str | None) -> bool:
 def validate_run_preconditions(args) -> None:
     """Reject mutable sources and truncated formal runs before side effects."""
     validate_model_source(args.model, args.revision)
-    if args.limit is not None and args.tag in _FORMAL_RUN_TAGS:
+    if args.limit is not None and not args.tag.startswith("smoke-"):
         raise ValueError(
-            f"--limit cannot use formal tag {args.tag!r}; pass a different --tag"
+            f"--limit requires a --tag beginning with 'smoke-'; got {args.tag!r}"
         )
     if _git_status_porcelain():
         raise RuntimeError(
@@ -501,6 +499,8 @@ def build_prediction_rows(
     for record, generation, score in zip(
         records, generations, scores, strict=True
     ):
+        serialized_score = asdict(score)
+        serialized_score["called_tool"] = score.called_tool
         rows.append(
             {
                 "record_id": record.id,
@@ -513,7 +513,7 @@ def build_prediction_rows(
                 "latency_ms": generation.latency_ms,
                 "prompt_tokens": generation.prompt_tokens,
                 "completion_tokens": generation.completion_tokens,
-                "score": asdict(score),
+                "score": serialized_score,
             }
         )
     return rows

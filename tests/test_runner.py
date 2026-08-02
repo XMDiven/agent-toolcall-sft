@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from test_evaluation import make_record
 
+from agent_toolcall_sft.evaluation.evidence import validate_run_preconditions
 from agent_toolcall_sft.evaluation.run_baseline import (
     build_parser,
     execute,
@@ -161,8 +162,11 @@ def test_production_cli_rejects_non_positive_limit(limit):
         build_parser().parse_args(["--limit", limit])
 
 
-def test_production_formal_tag_rejects_limit_before_model_load_or_directory(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "tag", ["production-json-v2", "baseline_production_json_v2"]
+)
+def test_production_non_smoke_tag_rejects_limit_before_model_load_or_directory(
+    tmp_path, monkeypatch, tag
 ):
     records = [make_record()]
     split = tmp_path / "test.jsonl"
@@ -180,7 +184,7 @@ def test_production_formal_tag_rejects_limit_before_model_load_or_directory(
         split=split,
         manifest=manifest,
         limit=1,
-        tag="production-json-v2",
+        tag=tag,
         output_dir=tmp_path / "artifacts",
     )
     monkeypatch.setattr(
@@ -188,10 +192,21 @@ def test_production_formal_tag_rejects_limit_before_model_load_or_directory(
         lambda *_args, **_kwargs: pytest.fail("formal limited run must not load"),
     )
 
-    with pytest.raises(ValueError, match="different --tag"):
+    with pytest.raises(ValueError, match="smoke-"):
         execute(args)
 
     assert not (args.output_dir / args.tag).exists()
+
+
+def test_limited_smoke_tag_passes_shared_preconditions():
+    args = SimpleNamespace(
+        model="remote/model",
+        revision="a" * 40,
+        limit=1,
+        tag="smoke-production-json-v2",
+    )
+
+    assert validate_run_preconditions(args) is None
 
 
 def test_dirty_worktree_rejected_before_model_load_or_directory(

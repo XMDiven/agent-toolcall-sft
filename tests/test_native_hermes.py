@@ -121,7 +121,12 @@ def test_native_execute_selects_gold_calls_before_applying_limit(
     )
     tool_a = make_record(id="second-tool")
     tool_b = make_record(id="third-tool")
-    args = _native_args(tmp_path, [non_tool, tool_a, tool_b], limit=1)
+    args = _native_args(
+        tmp_path,
+        [non_tool, tool_a, tool_b],
+        tag="smoke-native",
+        limit=1,
+    )
     seen = {}
 
     monkeypatch.setattr(
@@ -170,13 +175,16 @@ def test_native_execute_selects_gold_calls_before_applying_limit(
     assert metadata["worktree_clean"] is True
 
 
-def test_native_formal_tag_rejects_limit_before_model_load_or_directory(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "tag", ["native-hermes-v1", "baseline_native_hermes_v2"]
+)
+def test_native_non_smoke_tag_rejects_limit_before_model_load_or_directory(
+    tmp_path, monkeypatch, tag
 ):
     args = _native_args(
         tmp_path,
         [make_record()],
-        tag="native-hermes-v1",
+        tag=tag,
         limit=1,
     )
     monkeypatch.setattr(
@@ -184,7 +192,7 @@ def test_native_formal_tag_rejects_limit_before_model_load_or_directory(
         lambda *_args, **_kwargs: pytest.fail("formal limited run must not load"),
     )
 
-    with pytest.raises(ValueError, match="different --tag"):
+    with pytest.raises(ValueError, match="smoke-"):
         execute(args)
 
     assert not (args.output_dir / args.tag).exists()

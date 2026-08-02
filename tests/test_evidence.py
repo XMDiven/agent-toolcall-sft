@@ -12,6 +12,7 @@ from agent_toolcall_sft.data.corpus import _split_summary
 from agent_toolcall_sft.evaluation import evidence
 from agent_toolcall_sft.evaluation.evidence import (
     EvidenceExistsError,
+    build_prediction_rows,
     build_run_metadata,
     execute_frozen_run,
     reserve_destination,
@@ -20,6 +21,7 @@ from agent_toolcall_sft.evaluation.evidence import (
     write_frozen_evidence,
 )
 from agent_toolcall_sft.evaluation.runner import Generation
+from agent_toolcall_sft.evaluation.scoring import score_record
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +86,39 @@ def test_write_evidence_hashes_outputs_and_freezes_directory(tmp_path):
     assert "metadata.json" not in metadata["artifacts"]
     assert stat.S_IMODE((destination / "metadata.json").stat().st_mode) == 0o444
     assert stat.S_IMODE(destination.stat().st_mode) == 0o555
+
+
+def test_prediction_rows_include_single_and_multi_call_compatibility_fields():
+    record = make_record()
+    single_raw = json.dumps(
+        {
+            "action": "tool_call",
+            "tool_call": {
+                "name": "get_order_status",
+                "arguments": {"order_id": "ORD-603256"},
+            },
+        }
+    )
+    multi_raw = "\n".join(
+        [single_raw, json.dumps({"name": "invented_tool", "arguments": {}})]
+    )
+    generations = [
+        Generation(record.id, single_raw, 1.0, 10, 2),
+        Generation(record.id, multi_raw, 1.0, 10, 2),
+    ]
+    rows = build_prediction_rows(
+        [record, record],
+        generations,
+        [score_record(record, raw) for raw in (single_raw, multi_raw)],
+    )
+
+    assert rows[0]["score"]["called_tools"] == ("get_order_status",)
+    assert rows[0]["score"]["called_tool"] == "get_order_status"
+    assert rows[1]["score"]["called_tools"] == (
+        "get_order_status",
+        "invented_tool",
+    )
+    assert rows[1]["score"]["called_tool"] is None
 
 
 def test_metadata_hashes_existing_local_model_files(tmp_path):
