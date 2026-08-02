@@ -2,17 +2,20 @@ import hashlib
 import json
 import stat
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from test_evaluation import make_record
 
 from agent_toolcall_sft.data.corpus import _split_summary
+from agent_toolcall_sft.evaluation import evidence
 from agent_toolcall_sft.evaluation.evidence import (
     EvidenceExistsError,
     build_run_metadata,
     execute_frozen_run,
     reserve_destination,
+    staged_evidence_destination,
     verify_manifest_records,
     write_frozen_evidence,
 )
@@ -94,6 +97,10 @@ def test_metadata_hashes_existing_local_model_files(tmp_path):
         "model.safetensors.index.json": b"index",
         "model-00002-of-00002.safetensors": b"two",
         "model-00001-of-00002.safetensors": b"one",
+        "pytorch_model.bin": b"bin",
+        "tokenizer.model": b"model",
+        "chat_template.jinja": b"jinja",
+        "merges.txt": b"txt",
     }
     for name, content in model_files.items():
         (model_dir / name).write_bytes(content)
@@ -102,16 +109,23 @@ def test_metadata_hashes_existing_local_model_files(tmp_path):
     records = [make_record()]
     environment = {"gpu": "Fake GPU", "peak_vram_gib": 1.5}
 
+    snapshot = {
+        "git": {"commit": evidence._git_commit(), "worktree_clean": True},
+        "manifest": {
+            "path": str(manifest),
+            "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        },
+        "source_records": _split_summary(records),
+        "selected_records": _split_summary(records),
+        "evaluated_records": _split_summary(records),
+        "model": evidence._model_metadata(str(model_dir), None),
+    }
     metadata = build_run_metadata(
-        manifest_path=manifest,
-        records=records,
-        model_source=str(model_dir),
-        model_revision=None,
+        input_snapshot=snapshot,
         prompt_version="production_json_v2",
         decoding_version="v1",
         decoding={"do_sample": False},
         environment=environment,
-        worktree_clean=True,
     )
 
     assert metadata["git_commit"] == subprocess.run(
@@ -134,6 +148,10 @@ def test_metadata_hashes_existing_local_model_files(tmp_path):
         "model.safetensors.index.json",
         "model-00001-of-00002.safetensors",
         "model-00002-of-00002.safetensors",
+        "chat_template.jinja",
+        "merges.txt",
+        "pytorch_model.bin",
+        "tokenizer.model",
     ]
     assert metadata["model"]["file_hashes"] == {
         name: hashlib.sha256(model_files[name]).hexdigest()
@@ -163,16 +181,24 @@ def test_remote_model_identifier_marks_file_hashes_unavailable(tmp_path):
     manifest = tmp_path / "manifest.json"
     manifest.write_text("{}", encoding="utf-8")
 
+    records = [make_record()]
+    snapshot = {
+        "git": {"commit": evidence._git_commit(), "worktree_clean": True},
+        "manifest": {
+            "path": str(manifest),
+            "sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        },
+        "source_records": _split_summary(records),
+        "selected_records": _split_summary(records),
+        "evaluated_records": _split_summary(records),
+        "model": evidence._model_metadata("Qwen/Qwen3-1.7B", "a" * 40),
+    }
     metadata = build_run_metadata(
-        manifest_path=manifest,
-        records=[make_record()],
-        model_source="Qwen/Qwen3-1.7B",
-        model_revision="a" * 40,
+        input_snapshot=snapshot,
         prompt_version="production_json_v2",
         decoding_version="v1",
         decoding={},
         environment={},
-        worktree_clean=True,
     )
 
     assert metadata["model"]["source"] == "Qwen/Qwen3-1.7B"
@@ -180,6 +206,51 @@ def test_remote_model_identifier_marks_file_hashes_unavailable(tmp_path):
     assert metadata["model"]["revision_status"] == "pinned_commit"
     assert metadata["model"]["file_hashes"] == {}
     assert metadata["model"]["file_hashes_status"] == "unavailable_remote_source"
+
+
+def test_metadata_uses_precomputed_input_snapshot_without_live_reads(monkeypatch):
+    snapshot = {
+        "git": {"commit": "pre-run-commit", "worktree_clean": True},
+        "manifest": {"path": "manifest.json", "sha256": "1" * 64},
+        "source_records": {"count": 2, "sha256": "2" * 64},
+        "selected_records": {"count": 1, "sha256": "3" * 64},
+        "evaluated_records": {"count": 1, "sha256": "3" * 64},
+        "model": {
+            "source": "remote/model",
+            "revision": "a" * 40,
+            "source_type": "remote_repository",
+            "revision_status": "pinned_commit",
+            "file_hashes": {},
+            "file_hashes_status": "unavailable_remote_source",
+        },
+    }
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence._git_commit",
+        lambda: pytest.fail("metadata must not recapture git"),
+    )
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.sha256_file",
+        lambda _path: pytest.fail("metadata must not recapture files"),
+    )
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence._model_file_hashes",
+        lambda _model: pytest.fail("metadata must not recapture model"),
+    )
+
+    metadata = build_run_metadata(
+        input_snapshot=snapshot,
+        prompt_version="test_v1",
+        decoding_version="v1",
+        decoding={},
+        environment={},
+        evaluation_selection={"record_ids": ["record_1"]},
+    )
+
+    assert metadata["input_snapshot"] == snapshot
+    assert metadata["git_commit"] == "pre-run-commit"
+    assert metadata["manifest"] == snapshot["manifest"]
+    assert metadata["test_records"] == snapshot["source_records"]
+    assert metadata["model"] == snapshot["model"]
 
 
 def test_shared_orchestrator_injects_selection_prompt_and_summary(
@@ -285,6 +356,95 @@ def _assert_no_run_paths(args):
         assert not (args.output_dir / f".{args.tag}.lock").exists()
 
 
+def _stub_successful_evaluation(monkeypatch, during_generation=None):
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.load_model",
+        lambda *_args, **_kwargs: ("model", "tokenizer"),
+    )
+
+    def fake_run(*_args, **_kwargs):
+        if during_generation is not None:
+            during_generation()
+        return [Generation("record_1", "{}", 1.0, 1, 1)]
+
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.run_split", fake_run
+    )
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.score_record",
+        lambda record, _raw: SimpleNamespace(record_id=record.id),
+    )
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.environment_fingerprint",
+        lambda *_args, **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.build_prediction_rows",
+        lambda *_args: [],
+    )
+
+
+@pytest.mark.parametrize("changed_input", ["manifest", "model", "git_status"])
+def test_execute_refuses_publish_when_an_input_changes_during_run(
+    tmp_path, monkeypatch, changed_input
+):
+    args = _execution_args(tmp_path, tag=f"changed-{changed_input}")
+    model_config = Path(args.model) / "config.json"
+    model_config.write_text("before", encoding="utf-8")
+
+    if changed_input == "manifest":
+        def mutate_input():
+            payload = json.loads(args.manifest.read_text(encoding="utf-8"))
+            payload["diagnostic"] = "changed"
+            args.manifest.write_text(json.dumps(payload), encoding="utf-8")
+    elif changed_input == "model":
+        def mutate_input():
+            model_config.write_text("after", encoding="utf-8")
+    else:
+        statuses = iter(["", "", " M tracked.py\n"])
+        monkeypatch.setattr(
+            "agent_toolcall_sft.evaluation.evidence._git_status_porcelain",
+            lambda: next(statuses),
+        )
+
+        def mutate_input():
+            return None
+
+    _stub_successful_evaluation(monkeypatch, mutate_input)
+
+    with pytest.raises(RuntimeError, match="inputs changed"):
+        execute_frozen_run(
+            args,
+            selector=lambda source: source,
+            prompt_builder=object(),
+            prompt_version="test_v1",
+            summary_builder=lambda **_context: {"protocol": "test"},
+        )
+
+    _assert_no_run_paths(args)
+
+
+def test_empty_selection_fails_before_model_load_and_publishes_nothing(
+    tmp_path, monkeypatch
+):
+    args = _execution_args(tmp_path, tag="empty-selection")
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence.load_model",
+        lambda *_args, **_kwargs: pytest.fail("empty selection must not load model"),
+    )
+
+    with pytest.raises(ValueError, match="selected no records"):
+        execute_frozen_run(
+            args,
+            selector=lambda _source: [],
+            prompt_builder=object(),
+            prompt_version="test_v1",
+            summary_builder=lambda **_context: {},
+        )
+
+    _assert_no_run_paths(args)
+
+
 @pytest.mark.parametrize(
     "failure_stage",
     ["load", "generation", "summary", "metadata", "write_summary", "readonly"],
@@ -336,8 +496,6 @@ def test_execute_failure_cleans_owned_staging_lock_and_never_publishes_final(
             lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("metadata")),
         )
     if failure_stage == "write_summary":
-        from agent_toolcall_sft.evaluation import evidence
-
         original_write_json = evidence._write_json
 
         def fail_summary_write(path, payload):
@@ -397,6 +555,79 @@ def test_execute_rejects_existing_lock_and_preserves_it(tmp_path, monkeypatch):
 
     assert lock.read_text(encoding="utf-8") == "stale diagnostic"
     assert not (args.output_dir / args.tag).exists()
+
+
+@pytest.mark.parametrize("occupied_kind", ["empty_directory", "symlink"])
+def test_atomic_publish_never_replaces_an_existing_path(
+    tmp_path, monkeypatch, occupied_kind
+):
+    final = tmp_path / "run"
+    target = tmp_path / "symlink-target"
+    if occupied_kind == "empty_directory":
+        final.mkdir()
+    else:
+        target.mkdir()
+        final.symlink_to(target, target_is_directory=True)
+
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence._path_exists",
+        lambda _path: False,
+    )
+
+    with (
+        pytest.raises(EvidenceExistsError, match="already exists"),
+        staged_evidence_destination(final) as staging,
+    ):
+        (staging / "complete.txt").write_text("complete", encoding="utf-8")
+
+    if occupied_kind == "empty_directory":
+        assert final.is_dir()
+        assert not (final / "complete.txt").exists()
+    else:
+        assert final.is_symlink()
+        assert not (target / "complete.txt").exists()
+
+
+def test_atomic_publish_rejects_a_path_created_in_the_publish_race(
+    tmp_path, monkeypatch
+):
+    final = tmp_path / "run"
+    checks = 0
+
+    def create_racing_destination(_path):
+        nonlocal checks
+        checks += 1
+        if checks == 3:
+            final.mkdir()
+        return False
+
+    monkeypatch.setattr(
+        "agent_toolcall_sft.evaluation.evidence._path_exists",
+        create_racing_destination,
+    )
+
+    with (
+        pytest.raises(EvidenceExistsError, match="already exists"),
+        staged_evidence_destination(final) as staging,
+    ):
+        (staging / "complete.txt").write_text("complete", encoding="utf-8")
+
+    assert final.is_dir()
+    assert not (final / "complete.txt").exists()
+
+
+def test_staging_lock_is_private_while_held(tmp_path):
+    final = tmp_path / "run"
+    lock = tmp_path / ".run.lock"
+
+    with (
+        pytest.raises(RuntimeError, match="stop before publish"),
+        staged_evidence_destination(final),
+    ):
+        assert stat.S_IMODE(lock.stat().st_mode) == 0o600
+        raise RuntimeError("stop before publish")
+
+    assert not lock.exists()
 
 
 @pytest.mark.parametrize("revision", [None, "main", "v1.0", "a" * 39])

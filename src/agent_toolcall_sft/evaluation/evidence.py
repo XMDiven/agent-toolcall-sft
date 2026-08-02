@@ -1,6 +1,8 @@
 """Reserve, describe, and freeze reproducible baseline evidence."""
 
 import argparse
+import ctypes
+import errno
 import hashlib
 import importlib.metadata
 import json
@@ -8,6 +10,7 @@ import os
 import platform
 import re
 import subprocess
+import sys
 import tempfile
 import uuid
 from collections.abc import Callable
@@ -39,6 +42,20 @@ _MODEL_METADATA_FILES = (
 _CORE_PACKAGES = ("torch", "transformers", "pydantic", "jsonschema")
 _COMMIT_REVISION = re.compile(r"[0-9a-fA-F]{40}")
 _FORMAL_RUN_TAGS = frozenset({"production-json-v2", "native-hermes-v1"})
+_MODEL_FILE_SUFFIXES = frozenset(
+    {
+        ".bin",
+        ".jinja",
+        ".json",
+        ".merges",
+        ".model",
+        ".py",
+        ".safetensors",
+        ".tiktoken",
+        ".txt",
+        ".vocab",
+    }
+)
 
 
 class EvidenceExistsError(RuntimeError):
@@ -118,6 +135,52 @@ def _remove_owned_lock(lock: Path, token: str) -> None:
         pass
 
 
+def _atomic_publish_noreplace(staging: Path, final: Path) -> None:
+    """Atomically rename staging while asking the OS to reject any target."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    source = os.fsencode(staging)
+    destination = os.fsencode(final)
+    if sys.platform.startswith("linux"):
+        try:
+            rename = libc.renameat2
+        except AttributeError as error:
+            raise RuntimeError(
+                "atomic no-replace publish requires renameat2 on Linux"
+            ) from error
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(-100, source, -100, destination, 1)
+    elif sys.platform == "darwin":
+        try:
+            rename = libc.renamex_np
+        except AttributeError as error:
+            raise RuntimeError(
+                "atomic no-replace publish requires renamex_np on Darwin"
+            ) from error
+        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+        rename.restype = ctypes.c_int
+        result = rename(source, destination, 0x00000004)
+    else:
+        raise RuntimeError(
+            f"atomic no-replace publish is unsupported on {sys.platform!r}"
+        )
+
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise EvidenceExistsError(
+            f"{final} already exists; refusing to replace frozen evidence"
+        )
+    raise OSError(error_number, os.strerror(error_number), str(final))
+
+
 @contextmanager
 def staged_evidence_destination(final: Path):
     """Hold an exclusive sibling lock and atomically publish one frozen run.
@@ -136,7 +199,9 @@ def staged_evidence_destination(final: Path):
     lock = parent / f".{final.name}.lock"
     token = uuid.uuid4().hex
     try:
-        with lock.open("x", encoding="utf-8") as handle:
+        descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
             handle.write(token)
     except FileExistsError as error:
         raise EvidenceExistsError(
@@ -157,7 +222,7 @@ def staged_evidence_destination(final: Path):
             raise EvidenceExistsError(
                 f"{final} appeared before publish; refusing to overwrite it"
             )
-        staging.rename(final)
+        _atomic_publish_noreplace(staging, final)
         staging = None
     except BaseException:
         if staging is not None:
@@ -204,10 +269,32 @@ def _model_file_hashes(model_source: str) -> tuple[dict[str, str], str]:
     hashes: dict[str, str] = {}
     preferred = [model_path / name for name in _MODEL_METADATA_FILES]
     preferred.extend(sorted(model_path.glob("*.safetensors")))
-    for path in preferred:
+    remaining = sorted(
+        path
+        for path in model_path.iterdir()
+        if path.is_file()
+        and path.suffix.lower() in _MODEL_FILE_SUFFIXES
+        and path not in preferred
+    )
+    for path in [*preferred, *remaining]:
         if path.is_file():
             hashes[path.relative_to(model_path).as_posix()] = sha256_file(path)
     return hashes, "available"
+
+
+def _model_metadata(model_source: str, model_revision: str | None) -> dict:
+    model_hashes, model_hashes_status = _model_file_hashes(model_source)
+    is_local = Path(model_source).is_dir()
+    return {
+        "source": model_source,
+        "revision": model_revision,
+        "source_type": "local_directory" if is_local else "remote_repository",
+        "revision_status": (
+            "not_applicable_local_directory" if is_local else "pinned_commit"
+        ),
+        "file_hashes": model_hashes,
+        "file_hashes_status": model_hashes_status,
+    }
 
 
 def validate_model_source(model_source: str, revision: str | None) -> bool:
@@ -242,6 +329,51 @@ def _git_status_porcelain() -> str:
         text=True,
     )
     return result.stdout
+
+
+def _select_records(args, selector, all_records):
+    selected = selector(all_records)
+    records = (
+        stride_sample(selected, args.limit)
+        if args.limit is not None
+        else selected
+    )
+    return selected, records
+
+
+def _capture_input_snapshot(args, all_records, selected, records) -> dict:
+    verify_manifest_records(args.manifest, all_records)
+    status = _git_status_porcelain()
+    if status:
+        raise RuntimeError(
+            "Git worktree must be clean before a frozen evaluation run"
+        )
+    return {
+        "git": {"commit": _git_commit(), "worktree_clean": True},
+        "manifest": {
+            "path": str(args.manifest),
+            "sha256": sha256_file(args.manifest),
+        },
+        "source_records": _split_summary(all_records),
+        "selected_records": _split_summary(selected),
+        "evaluated_records": _split_summary(records),
+        "model": _model_metadata(args.model, args.revision),
+    }
+
+
+def _assert_input_snapshot_unchanged(args, selector, expected: dict) -> None:
+    try:
+        all_records = read_records(args.split)
+        selected, records = _select_records(args, selector, all_records)
+        current = _capture_input_snapshot(args, all_records, selected, records)
+    except Exception as error:
+        raise RuntimeError(
+            "evaluation inputs changed during the run; refusing to publish"
+        ) from error
+    if current != expected:
+        raise RuntimeError(
+            "evaluation inputs changed during the run; refusing to publish"
+        )
 
 
 def _evaluation_selection(
@@ -287,38 +419,21 @@ def _git_commit() -> str:
 
 def build_run_metadata(
     *,
-    manifest_path: Path,
-    records: list[DatasetRecord],
-    model_source: str,
-    model_revision: str | None,
     prompt_version: str,
     decoding_version: str,
     decoding: dict,
     environment: dict,
-    worktree_clean: bool,
+    input_snapshot: dict,
     evaluation_selection: dict | None = None,
 ) -> dict:
-    """Capture immutable inputs and the execution environment for one run."""
-    model_hashes, model_hashes_status = _model_file_hashes(model_source)
-    is_local = Path(model_source).is_dir()
+    """Combine a pre-load input snapshot with post-run runtime metadata."""
     metadata = {
-        "git_commit": _git_commit(),
-        "worktree_clean": worktree_clean,
-        "manifest": {
-            "path": str(manifest_path),
-            "sha256": sha256_file(manifest_path),
-        },
-        "test_records": _split_summary(records),
-        "model": {
-            "source": model_source,
-            "revision": model_revision,
-            "source_type": "local_directory" if is_local else "remote_repository",
-            "revision_status": (
-                "not_applicable_local_directory" if is_local else "pinned_commit"
-            ),
-            "file_hashes": model_hashes,
-            "file_hashes_status": model_hashes_status,
-        },
+        "git_commit": input_snapshot["git"]["commit"],
+        "worktree_clean": input_snapshot["git"]["worktree_clean"],
+        "manifest": input_snapshot["manifest"],
+        "test_records": input_snapshot["source_records"],
+        "model": input_snapshot["model"],
+        "input_snapshot": input_snapshot,
         "protocol": {
             "prompt_version": prompt_version,
             "decoding_version": decoding_version,
@@ -418,11 +533,11 @@ def execute_frozen_run(
     verify_manifest_records(args.manifest, all_records)
     final = args.output_dir / args.tag
     with staged_evidence_destination(final) as staging:
-        selected = selector(all_records)
-        records = (
-            stride_sample(selected, args.limit)
-            if args.limit is not None
-            else selected
+        selected, records = _select_records(args, selector, all_records)
+        if not records:
+            raise ValueError("evaluation selection selected no records")
+        input_snapshot = _capture_input_snapshot(
+            args, all_records, selected, records
         )
         print(
             f"selected {len(selected)} records; evaluating {len(records)} "
@@ -448,17 +563,13 @@ def execute_frozen_run(
             performance=performance,
         )
         metadata = build_run_metadata(
-            manifest_path=args.manifest,
-            records=all_records,
-            model_source=args.model,
-            model_revision=args.revision,
+            input_snapshot=input_snapshot,
             prompt_version=prompt_version,
             decoding_version=DECODING_VERSION,
             decoding=asdict(DECODING),
             environment=environment_fingerprint(
                 args.model, prompt_version=prompt_version
             ),
-            worktree_clean=True,
             evaluation_selection=_evaluation_selection(
                 source_records=len(all_records),
                 selected_records=len(selected),
@@ -472,5 +583,6 @@ def execute_frozen_run(
             summary=summary,
             metadata=metadata,
         )
+        _assert_input_snapshot_unchanged(args, selector, input_snapshot)
     print(f"wrote frozen evidence to {final}")
     return final
