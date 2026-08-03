@@ -7,6 +7,7 @@ dependencies = [
     "accelerate",
     "bitsandbytes",
     "datasets",
+    "fastapi>=0.141.1",
     "jsonschema",
     "numpy",
     "peft",
@@ -15,10 +16,12 @@ dependencies = [
     "torch==2.12.1",
     "transformers",
     "trl",
+    "uvicorn>=0.52.1",
 ]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest",
     "ruff",
 ]

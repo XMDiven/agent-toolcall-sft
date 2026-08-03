@@ -453,12 +453,12 @@ GET  /health
 POST /v1/route
 ```
 
-- [ ] `POST /v1/route` 请求体包含 `messages` 与 `tools`（本次可用的工具清单）；
-- [ ] 响应为 Pydantic 判别联合（`tool_call` / `clarify` / `direct_answer` / `handoff`），复用 `contracts.py` 的同一套类型；
-- [ ] 解析失败、未知工具、清单外工具或非法参数一律 fail closed；
-- [ ] 响应包含 `model_version`、`adapter_revision` 和 `latency_ms`；
-- [ ] 使用模拟订单与工单 fixture，不执行真实业务写入；
-- [ ] API 测试使用 fake model backend，不依赖 GPU；
+- [x] `POST /v1/route` 请求体包含 `messages` 与 `tools`（本次可用的工具清单）；两者均为必填且非空，请求中出现未知工具名直接 422；
+- [x] 响应为 Pydantic 判别联合（`tool_call` / `clarify` / `direct_answer` / `handoff`），复用 `contracts.py` 的同一套类型；响应模型直接引用 `contracts.Decision`，未另行定义；
+- [x] 解析失败、未知工具、清单外工具或非法参数一律 fail closed；**统一返回 422 且响应体中不含 `decision`**，错误码区分 `invalid_json` / `schema_invalid` / `off_menu_tool` / `unknown_tool_requested`，并回带 `raw_output` 供调用方记录降级原因。**故障绝不伪装成 `handoff`**——后者是需要调用方执行的合法决策，测试 `test_a_genuine_handoff_is_not_confused_with_a_failure` 钉住该边界；
+- [x] 响应包含 `model_version`、`adapter_revision` 和 `latency_ms`；`adapter_revision` 取自合并模型 `merge_provenance.json` 中 `adapter_model.safetensors` 的 sha256 前 12 位（`8109961df2e1`），非手写版本号；
+- [x] 使用模拟订单与工单 fixture，不执行真实业务写入；**本服务只返回决策、不执行任何工具**，写操作由调用方负责，服务侧不存在业务副作用；
+- [x] API 测试使用 fake model backend，不依赖 GPU；`tests/test_serving.py` 14 个用例全部经 `FakeBackend` 驱动，生成被隔离在 `RouterBackend` 协议之后；
 - [ ] Dockerfile 与 GitHub Actions 配置从已有项目复制适配，**不单独作为里程碑验收**。
 
 建议提交：`feat: expose fine-tuned router over HTTP`
