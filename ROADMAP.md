@@ -500,34 +500,34 @@ POST /v1/route
 
 **契约与数据层**
 
-- [ ] 数据 split 不共享 `template_key`，也不共享仅替换合成参数的参数化句式；
-- [ ] `expected_tool_call.name` 始终在该条样本的 `tools` 清单内；
-- [ ] 至少 25% 的样本只提供三个知识工具；
-- [ ] 非法 JSON、未知工具、非法枚举和额外字段安全降级。
+- [x] 数据 split 不共享 `template_key`，也不共享仅替换合成参数的参数化句式；manifest 六项泄漏门禁全为 0、`leakage_clean: true`，回归测试 `tests/test_corpus.py`；
+- [x] `expected_tool_call.name` 始终在该条样本的 `tools` 清单内；全语料 2,800 条实测 0 违规，且由 Schema 在构造时强制；
+- [x] 至少 25% 的样本只提供三个知识工具；实测 818/2,800 = **29.2%**；
+- [x] 非法 JSON、未知工具、非法枚举和额外字段安全降级；`tests/test_evaluation.py`（50 例）与 `tests/test_contracts.py`（13 例）覆盖，推理接口侧另有 `tests/test_serving.py`（14 例）验证统一返回 422 且不含 `decision`。
 
 **客服域行为**
 
-- [ ] 明确查询订单时选择 `get_order_status`；
-- [ ] 不混淆订单查询与退款资格；
-- [ ] 缺少订单号时返回 `clarify`；
-- [ ] 未明确确认退款时禁止 `create_refund_request`；
-- [ ] 明确确认且参数齐全时生成合法退款调用。
+- [x] 明确查询订单时选择 `get_order_status`；`order_status_lookup` 族 27/30 = 90.00%；
+- [x] 不混淆订单查询与退款资格；500 条中两者互相错认**仅 1 条**；
+- [x] 缺少订单号时返回 `clarify`；`order_status_missing_id` 族 23/25 = 92.00%，`refund_missing_order_id` 族 25/25 = 100%；
+- [x] 未明确确认退款时禁止 `create_refund_request`；危险写误调用率 2/180 = **1.11%**（基线 17.78%）；`refund_missing_confirmation` 族 20/25 = 80.00%，**该族是当前最弱项**，2 条误调用逐条记录于 `reports/eval_v2.md` 第 6 节；
+- [x] 明确确认且参数齐全时生成合法退款调用；`refund_confirmed` 族 30/31 = 96.77%。
 
 **知识域行为**
 
-- [ ] 单点事实问题选择 `retrieval_tool`；
-- [ ] 对比或多部分问题选择 `question_decompose_tool`，不退化为单次检索；
-- [ ] 用户提供长文本要求压缩时选择 `summary_tool`；
-- [ ] 只提供三个知识工具时，不输出任何客服工具。
+- [x] 单点事实问题选择 `retrieval_tool`；`kb_lookup` 族 33/34 = 97.06%；
+- [x] 对比或多部分问题选择 `question_decompose_tool`，不退化为单次检索；`kb_compare` 族 **33/33 = 100%**；
+- [x] 用户提供长文本要求压缩时选择 `summary_tool`；`text_summarize` 族 32/33 = 96.97%；
+- [x] 只提供三个知识工具时，不输出任何客服工具；测试集中 146 条只提供知识工具，**其中输出客服工具的为 0 条**；全局清单外工具调用率 0.0000。
 
 **通用与安全**
 
-- [ ] 问候和无需外部信息的问题返回 `direct_answer`；
-- [ ] 强烈投诉、高风险或未知业务返回 `handoff`；
-- [ ] Prompt Injection 不能覆盖系统工具规则；
-- [ ] 中文、英文、Unicode、长输入和重复请求稳定处理；
-- [ ] Adapter 可在独立进程加载并复现固定 smoke cases；
-- [ ] `ROUTER_BACKEND=finetuned` 时 `rag-agent-platform` 既有测试全绿。
+- [x] 问候和无需外部信息的问题返回 `direct_answer`；`greeting` 24/25、`chitchat_closing` **25/25**、`capability_question` 22/25；
+- [x] 强烈投诉、高风险或未知业务返回 `handoff`；`legal_dispute` **25/25**、`privilege_escalation` **12/12**、`out_of_scope` 24/25、`strong_complaint` 23/25；整体 `handoff` 准确率由基线 0.1818 升至 0.9697；
+- [x] Prompt Injection 不能覆盖系统工具规则；`prompt_injection` 族 **12/12 = 100%**；
+- [ ] 中文、英文、Unicode、长输入和重复请求稳定处理；**未覆盖，如实留空。** 冻结测试集实测：纯 ASCII（英文）样本 **0 条**、含 4 字母以上拉丁词仅 2 条、文本长度中位 25 / 最长 **79 字符**（`max_seq_length` 为 1024 token）、测试集为单轮设计因而无重复请求场景。语料按设计只覆盖中文客服，因此本项无证据支撑，不得据此声称多语言或长输入能力；
+- [x] Adapter 可在独立进程加载并复现固定 smoke cases；20 条固定 case（覆盖 15 个族、其中 10 条只给三个知识工具）在两个独立进程中输出**逐条完全一致**；另在 Apple M4 上验证合并模型与 CUDA 评测 500/500 判定一致，见 `docs/evidence/deployment_parity.md`；
+- [x] `ROUTER_BACKEND=finetuned` 时 `rag-agent-platform` 既有测试全绿；实测 **253 → 267 passed**，无失败；服务不可达时降级回 `llm` 并记录 `error_type`，见 `docs/demo/router_ab.md`。
 
 ## 5. 每个里程碑的证据模板
 
