@@ -40,15 +40,34 @@ def build_target_text(record: DatasetRecord) -> str:
     )
 
 
+def _token_ids(encoded) -> list[int]:
+    """Normalise what a tokenizer returns into a flat list of ids.
+
+    `apply_chat_template(tokenize=True)` yields a BatchEncoding on current
+    transformers; iterating it directly gives the dict keys, which silently
+    replaces a 449-token prompt with two strings.
+    """
+    ids = encoded["input_ids"] if hasattr(encoded, "keys") else encoded
+    if ids and isinstance(ids[0], (list, tuple)):
+        ids = ids[0]
+    ids = list(ids)
+    if not all(isinstance(token, int) for token in ids):
+        raise TypeError(f"tokenizer returned non-integer ids: {ids[:4]}")
+
+    return ids
+
+
 def format_record(
     tokenizer, record: DatasetRecord, max_seq_length: int
 ) -> TrainingExample:
     """Build one example whose labels cover the assistant answer only."""
-    prompt_ids = tokenizer.apply_chat_template(
-        render_messages(record), add_generation_prompt=True, tokenize=True
+    prompt_ids = _token_ids(
+        tokenizer.apply_chat_template(
+            render_messages(record), add_generation_prompt=True, tokenize=True
+        )
     )
     answer = build_target_text(record) + (tokenizer.eos_token or "")
-    answer_ids = tokenizer(answer, add_special_tokens=False)["input_ids"]
+    answer_ids = _token_ids(tokenizer(answer, add_special_tokens=False))
 
     if len(prompt_ids) + len(answer_ids) > max_seq_length:
         # Truncating the answer would supervise a broken JSON fragment, so the

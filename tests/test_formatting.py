@@ -26,7 +26,10 @@ class FakeTokenizer:
         text = "|".join(f"{m['role']}:{m['content']}" for m in messages)
         if add_generation_prompt:
             text += "|assistant:"
-        return text if not tokenize else self(text)["input_ids"]
+        if not tokenize:
+            return text
+        # Mirror transformers: tokenize=True yields a BatchEncoding, not a list.
+        return {"input_ids": self(text)["input_ids"], "attention_mask": []}
 
     def __call__(self, text, add_special_tokens=False):
         return {"input_ids": [ord(c) for c in text]}
@@ -91,6 +94,12 @@ def test_offered_tools_are_rendered_and_vary_between_records(records):
     assert len(set(prompts)) == len(prompts), "tool menus did not vary across records"
 
 
+def test_every_token_id_is_an_integer(records):
+    """A BatchEncoding leaking through as dict keys would land strings here."""
+    example = format_record(FakeTokenizer(), records[0], max_seq_length=4096)
+    assert all(isinstance(t, int) for t in example.input_ids)
+
+
 def test_truncation_never_drops_the_whole_answer(records):
     tokenizer = FakeTokenizer()
     with pytest.raises(ValueError):
@@ -102,8 +111,20 @@ def test_real_chat_template_masks_only_the_answer(records):
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(str(REAL_MODEL))
-    example = format_record(tokenizer, records[0], max_seq_length=1024)
+    record = records[0]
+    example = format_record(tokenizer, record, max_seq_length=1024)
+
+    assert all(isinstance(t, int) for t in example.input_ids)
 
     supervised = [t for t, label in zip(example.input_ids, example.labels) if label != IGNORE_INDEX]
     decoded = tokenizer.decode(supervised, skip_special_tokens=True)
-    assert parse_decision(json.loads(decoded)) == records[0].expected_decision
+    assert parse_decision(json.loads(decoded)) == record.expected_decision
+
+    # The masked span must be the real prompt, not a stub: it carries the tool
+    # contracts, so it is long and names every offered tool.
+    masked = [t for t, label in zip(example.input_ids, example.labels) if label == IGNORE_INDEX]
+    prompt = tokenizer.decode(masked)
+    assert len(masked) > 100, f"prompt collapsed to {len(masked)} tokens"
+    for name in record.tools:
+        assert name in prompt
+    assert record.messages[0].content in prompt
