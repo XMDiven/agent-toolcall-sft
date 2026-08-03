@@ -403,9 +403,9 @@ uv run python -m agent_toolcall_sft.training.train \
 
 **方法论上与 LLM-as-Judge 形成互补：那类方法依赖模型评分，本项目使用冻结基线 + 统计检验，结论可复现且不依赖裁判模型。**
 
-- [ ] 先编写非法 JSON、未知工具、额外字段、缺参、多余调用和"调用了清单外工具"的失败测试；
-- [ ] 将原始模型与微调模型输出统一通过 `parse_decision()` 解析为四种决策；
-- [ ] 计算：
+- [x] 先编写非法 JSON、未知工具、额外字段、缺参、多余调用和"调用了清单外工具"的失败测试；六类均已覆盖并早于本次评测存在：`tests/test_evaluation.py` 50 个用例 + `tests/test_contracts.py` 13 个用例；
+- [x] 将原始模型与微调模型输出统一通过 `parse_decision()` 解析为四种决策；两次运行经由同一个 `execute_frozen_run` 生命周期，Adapter 通过 `model_loader` 钩子接入，不另开评测路径；
+- [x] 计算：
   - `action_accuracy`：四分类 action 是否正确；
   - `behavior_accuracy`：非工具决策要求 action 正确，工具调用要求 action、工具名和完整参数全部正确；不可解析或 Schema 非法输出计错；
   - 工具决策与工具名准确率；
@@ -415,10 +415,16 @@ uv run python -m agent_toolcall_sft.training.train \
   - **危险写工具误调用率**（未确认即调用 `create_refund_request` 的比例）；
   - **清单外工具调用率**（输出了不在本条 `tools` 中的工具）；
   - p50/p95 延迟、tokens/s、峰值显存和 Adapter 大小。
-- [ ] **所有准确率类指标必须分三组报告：knowledge 子集、support 子集、整体**；
-- [ ] 使用相同测试样本做 paired bootstrap，报告差值的 95% 置信区间；
-- [ ] 不把无法解析的输出从分母中删除；
-- [ ] 生成 `reports/eval_v1.md`。
+- [x] **所有准确率类指标必须分三组报告：knowledge 子集、support 子集、整体**；见 `reports/eval_v1.md` 第 3 节；
+- [x] 使用相同测试样本做 paired bootstrap，报告差值的 95% 置信区间；10000 次重采样、seed 42，**每次只抽一次记录下标、两侧共用**，`behavior_accuracy` overall 差值 +0.5640、CI [+0.5140, +0.6120]；
+- [x] 不把无法解析的输出从分母中删除；20 条不可解析输出计入分母并计错，回归测试 `test_unparsed_rows_stay_in_the_denominator`；
+- [x] 生成 `reports/eval_v1.md`；报告中 73 个比率值与 39 个带符号差值逐一回溯到冻结证据，无法直接定位的 6 项（跨文件引用与手算差值）已单独复算核对。
+
+> **3.1 结论摘要（详见 `reports/eval_v1.md`）：** `behavior_accuracy` overall 0.3620 → 0.9260（CI [+0.5140, +0.6120]）、knowledge 0.0000 → 0.9900、support 0.4525 → 0.9100，均显著；危险写误调用率 17.78% → **0.00%**（CI [−0.2333, −0.1278]），清单外调用率归零。
+>
+> **但 JSON 合法率出现统计显著回退**：1.0000 → 0.9620（CI [−0.0560, −0.0220]），19 条全部为 `":"` 写成 `:"` 的单 token 混淆，其中 18 条集中在 `order_status_lookup` 族。合法率因此未达 DoD 的 99%，**项目当前不满足全部验收标准**。
+>
+> 另须与提升数字一并陈述：基座模型在原生 Hermes 格式下 `tool_name_accuracy` 为 0.9238，微调模型在 production 协议下为 0.8744（同为 223 条 gold `tool_call`）。**本次微调主要教会了输出契约的遵循，未提升工具路由能力本身。**
 
 **为什么必须分层：** 工具集从 5 个扩到 7 个后，整体准确率会被两个域的难度差异稀释。只报一个总数既看不出真实提升，也无法解释；分层报告让"哪一类变好了、哪一类没有"变成可讨论的结论。
 
