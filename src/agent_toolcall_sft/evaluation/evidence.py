@@ -295,6 +295,31 @@ def _model_metadata(model_source: str, model_revision: str | None) -> dict:
     }
 
 
+def adapter_metadata(adapter_source: str | None) -> dict:
+    """Pin a LoRA adapter by hashing every file it ships.
+
+    The paired comparison only means something if the adapter behind the
+    tuned numbers is identifiable. Recording the path alone would let a
+    retrained adapter at the same location pass as the one that was measured.
+    """
+    if adapter_source is None:
+        return {"source": None, "attached": False}
+
+    path = Path(adapter_source)
+    if not path.is_dir():
+        raise ValueError(f"adapter directory not found: {adapter_source}")
+
+    return {
+        "source": adapter_source,
+        "attached": True,
+        "file_hashes": {
+            item.relative_to(path).as_posix(): sha256_file(item)
+            for item in sorted(path.rglob("*"))
+            if item.is_file()
+        },
+    }
+
+
 def validate_model_source(model_source: str, revision: str | None) -> bool:
     """Return whether the source is local, rejecting mutable remote revisions."""
     if Path(model_source).is_dir():
@@ -356,6 +381,7 @@ def _capture_input_snapshot(args, all_records, selected, records) -> dict:
         "selected_records": _split_summary(selected),
         "evaluated_records": _split_summary(records),
         "model": _model_metadata(args.model, args.revision),
+        "adapter": adapter_metadata(getattr(args, "adapter", None)),
     }
 
 
@@ -526,6 +552,7 @@ def execute_frozen_run(
     prompt_builder: Callable,
     prompt_version: str,
     summary_builder: Callable[..., dict],
+    model_loader: Callable | None = None,
 ) -> Path:
     """Execute the shared, fail-closed lifecycle for one frozen protocol."""
     validate_run_preconditions(args)
@@ -544,7 +571,11 @@ def execute_frozen_run(
             f"from {args.split}"
         )
 
-        model, tokenizer = load_model(args.model, revision=args.revision)
+        model, tokenizer = (
+            model_loader(args)
+            if model_loader is not None
+            else load_model(args.model, revision=args.revision)
+        )
         print(f"loaded {args.model}")
         generations = run_split(
             model, tokenizer, records, prompt_builder=prompt_builder
