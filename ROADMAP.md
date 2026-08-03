@@ -467,13 +467,13 @@ POST /v1/route
 
 **约束：只以新增配置开关的方式接入，不改动平台现有工具定义、编排逻辑与 demo。**
 
-- [ ] 在 `rag-agent-platform` 增加配置项 `ROUTER_BACKEND`，取值 `llm`（默认，现有行为）或 `finetuned`；
-- [ ] `finetuned` 分支调用本项目的 `POST /v1/route`，**只传三个知识工具**（`retrieval_tool`、`summary_tool`、`question_decompose_tool`）；
-- [ ] 两个 backend 输出同一种决策结构，`run_tool` 派发逻辑零改动；
-- [ ] 微调模型返回清单外工具或非法参数时，降级回 `llm` backend 并记录降级原因；
-- [ ] **平台现有测试必须全绿**，用以证明联动没有破坏既有能力；
-- [ ] 产出 `docs/demo/router_ab.md`：同一组固定问题在两种 backend 下的决策对比、真实命令与完整响应；
-- [ ] 记录两种 backend 的 p50/p95 延迟差异。
+- [x] 在 `rag-agent-platform` 增加配置项 `ROUTER_BACKEND`，取值 `llm`（默认，现有行为）或 `finetuned`；随附 `finetuned_router_url`，均遵循平台既有 pydantic-settings 约定；
+- [x] `finetuned` 分支调用本项目的 `POST /v1/route`，**只传三个知识工具**（`retrieval_tool`、`summary_tool`、`question_decompose_tool`）；由 `test_only_the_three_knowledge_tools_are_offered` 断言；调用使用标准库 `urllib`，未给平台引入运行时依赖；
+- [x] 两个 backend 输出同一种决策结构，`run_tool` 派发逻辑零改动；两者均返回平台既有的 `ToolSelection`；平台侧共改 2 个文件、新增 35 行、删除 1 行，未触碰工具定义、派发、demo 与前端；
+- [x] 微调模型返回清单外工具或非法参数时，降级回 `llm` backend 并记录降级原因；实测停掉服务后日志为 `agent.router_backend degrade backend=finetuned error_type=HTTPError`，结果由 llm 路径返回；非工具决策、清单外工具、结构异常与超时均触发降级，由 `test_finetuned_router.py` 覆盖；
+- [x] **平台现有测试必须全绿**，用以证明联动没有破坏既有能力；**253 → 267 passed**（+14 为本次新增），无失败；
+- [x] 产出 `docs/demo/router_ab.md`：12 条固定问题、两个 backend、0 次调用失败，决策一致 9/12，三条分歧全部同向（微调选拆解、LLM 选检索）并逐条分析；
+- [x] 记录两种 backend 的 p50/p95 延迟差异；`llm` p50 2159.54 / p95 2674.92 ms，`finetuned` p50 2677.16 / p95 3363.44 ms——**本地 1.7B 比远程 API 慢约 24%**，联动未带来延迟收益。
 
 **为什么这一步值得做：** 它把"微调模型"从一个孤立的指标产物变成一个可插拔组件，并提供项目中唯一可现场演示的差异。同时它也是对 1.3 中"工具清单随机化"设计的真实检验——如果模型在只给三个工具时表现崩溃，说明训练数据的清单分布设计有问题。
 
