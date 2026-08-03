@@ -15,6 +15,7 @@ from agent_toolcall_sft.data.records import read_records
 from agent_toolcall_sft.training.config import QLoRAConfig, load_config
 from agent_toolcall_sft.training.data import build_examples, collate
 from agent_toolcall_sft.training.model import build_model, describe_parameters
+from agent_toolcall_sft.training.provenance import capture_provenance
 
 
 class _Dataset:
@@ -68,6 +69,18 @@ def run(args, config: QLoRAConfig) -> dict:
         pad_token_id = tokenizer.eos_token_id
 
     train_file, eval_file = resolve_data_files(args, config)
+
+    # Written before the model is even loaded: a record produced afterwards
+    # would describe whatever the tree looked like when the run ended.
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    provenance = capture_provenance(
+        args.config, args.manifest, train_file, eval_file, args.model or config.base_model
+    )
+    (output_dir / "provenance.json").write_text(
+        json.dumps(provenance, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
     train = build_examples(
         tokenizer,
         read_records(train_file),
@@ -86,7 +99,6 @@ def run(args, config: QLoRAConfig) -> dict:
     if not parameters["adapter_only"]:
         raise RuntimeError(f"adapter not attached: {parameters}")
 
-    output_dir = Path(args.output_dir)
     training_args = TrainingArguments(
         output_dir=str(output_dir),
         per_device_train_batch_size=config.training.per_device_train_batch_size,
@@ -120,7 +132,9 @@ def run(args, config: QLoRAConfig) -> dict:
     result = trainer.train(resume_from_checkpoint=args.resume_from_checkpoint)
     elapsed = time.perf_counter() - started
 
-    trainer.save_model(str(output_dir / "adapter"))
+    adapter_dir = output_dir / "adapter"
+    trainer.save_model(str(adapter_dir))
+    adapter_bytes = sum(f.stat().st_size for f in adapter_dir.rglob("*") if f.is_file())
     tokens = sum(len(example.input_ids) for example in train) * config.training.num_train_epochs
 
     resumed = args.resume_from_checkpoint is not None
@@ -134,6 +148,10 @@ def run(args, config: QLoRAConfig) -> dict:
         "resumed": resumed,
         "tokens_per_s": None if resumed else round(tokens / elapsed, 1),
         "peak_vram_gib": round(torch.cuda.max_memory_allocated() / 1024**3, 3),
+        "adapter_mib": round(adapter_bytes / 1024**2, 2),
+        "learning_rate": config.training.learning_rate,
+        "epochs": config.training.num_train_epochs,
+        "provenance": provenance,
         "parameters": parameters,
         "eval": {k: v for k, v in trainer.evaluate().items() if isinstance(v, (int, float))},
     }
@@ -152,6 +170,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eval-file", default=None)
     parser.add_argument("--max-train-samples", type=int, default=None)
     parser.add_argument("--max-eval-samples", type=int, default=None)
+    parser.add_argument(
+        "--manifest",
+        default="data/manifests/split_v2.json",
+        help="data manifest recorded in the run provenance",
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument(
         "--resume-from-checkpoint",
