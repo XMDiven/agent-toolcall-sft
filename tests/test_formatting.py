@@ -48,6 +48,29 @@ def test_target_text_round_trips_through_the_evaluation_parser(records):
         assert decision == record.expected_decision
 
 
+def test_target_uses_spaced_separators(records):
+    """Compact separators produced the ':"' token the v1 adapter kept mis-emitting."""
+    target = build_target_text(records[0])
+
+    assert '":"' not in target
+    assert '","' not in target
+    assert '": "' in target
+
+
+@pytest.mark.skipif(not REAL_MODEL.exists(), reason="base weights not present")
+def test_target_never_tokenises_into_the_confusable_pair(records):
+    """The v1 failure was a single token pick; the target must not offer it."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(str(REAL_MODEL))
+    confusable = {'":"', ':"'}
+
+    for record in records[:300]:
+        ids = tokenizer(build_target_text(record), add_special_tokens=False)["input_ids"]
+        pieces = {tokenizer.decode([i]) for i in ids}
+        assert not (pieces & confusable), f"{record.id} still emits {pieces & confusable}"
+
+
 def test_prompt_tokens_are_masked_and_answer_tokens_are_not(records):
     tokenizer = FakeTokenizer()
     example = format_record(tokenizer, records[0], max_seq_length=4096)

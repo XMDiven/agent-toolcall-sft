@@ -30,13 +30,23 @@ class TrainingExample:
     labels: list[int]
 
 
+# Spaced, not compact. Compact separators put `":"` in the target, and `":"`
+# and `:"` are two near-identical single tokens in the Qwen3 vocabulary: the
+# v1 adapter picked the wrong one on 19 of 500 test rows and produced
+# unparsable JSON, while the untuned base model -- which writes spaced JSON of
+# its own accord -- got those same rows right. Spacing splits the sequence into
+# `":` and ` "`, neither of which is confusable. Costs ~24% more output tokens.
+# See reports/error_analysis_v1.md section 4.
+JSON_SEPARATORS = (", ", ": ")
+
+
 def build_target_text(record: DatasetRecord) -> str:
     """Serialise the gold decision exactly as the production protocol expects."""
     return json.dumps(
         record.expected_decision.model_dump(mode="json", exclude_none=True),
         ensure_ascii=False,
         sort_keys=True,
-        separators=(",", ":"),
+        separators=JSON_SEPARATORS,
     )
 
 
