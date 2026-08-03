@@ -1,0 +1,47 @@
+# 首个 QLoRA 训练配置（ROADMAP 2.1）
+#
+# 这些数值不是独立旋钮，是 6GB 显存下的一组解：
+# batch 1 × 梯度累积 16 × seq 1024 × 4-bit + gradient checkpointing。
+# 改动任何一项前先重跑 2.2 的 smoke test，不要直接跑全量。
+#
+# 本文件的哈希会随训练一起记入证据（ROADMAP 2.4）。
+
+base_model: Qwen/Qwen3-1.7B
+
+quantization:
+  load_in_4bit: true
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: float16
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+data:
+  train_file: data/processed/train.jsonl
+  eval_file: data/processed/valid.jsonl
+  max_seq_length: 1024
+  # 只对助手输出（含工具调用）计算 loss；system 与 user token 必须被 mask 掉。
+  loss_on: assistant
+
+training:
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 16
+  num_train_epochs: 2
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  gradient_checkpointing: true
+  seed: 42
+  eval_steps: 50
+  save_steps: 50
+  save_total_limit: 2

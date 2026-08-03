@@ -328,7 +328,7 @@ PY
 
 ### 2.1 固定首个训练配置
 
-- [ ] 创建 `configs/qlora.yaml`，写入：
+- [x] 创建 `configs/qlora.yaml`，写入（由 `training/config.py` 严格解析，`extra="forbid"`；`tests/test_training_config.py` 断言下列每个数值，6 个用例通过）：
   - base model：`Qwen/Qwen3-1.7B`；
   - 4-bit NF4、double quantization、FP16 compute；
   - LoRA `r=16`、`alpha=32`、`dropout=0.05`；
