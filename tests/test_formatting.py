@@ -1,6 +1,7 @@
 """Training examples must supervise the assistant span only, and nothing else."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,9 @@ from agent_toolcall_sft.training.formatting import (
     format_record,
 )
 
-REAL_MODEL = Path("/home/mdiven/models/Qwen3-1.7B")
+# Overridable so the parity checks run wherever the weights live; the
+# default is this project's machine and the tests skip when it is absent.
+REAL_MODEL = Path(os.environ.get("QWEN3_MODEL_PATH", "/home/mdiven/models/Qwen3-1.7B"))
 
 
 class FakeTokenizer:
