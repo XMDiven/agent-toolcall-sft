@@ -488,8 +488,8 @@ POST /v1/route
 - [ ] 只发布脱敏数据与 LoRA Adapter，不重复上传基座权重；
 - [ ] 发布前扫描密钥、用户名、绝对本地路径、PII 和大文件；
 - [ ] 由用户明确确认后才创建 GitHub Remote、push 或发布 Hugging Face 产物；
-- [ ] 创建 `docs/evidence/metrics_traceability.md`，每个对外声明的指标标注对应报告、commit、数据 manifest 和复现命令；
-- [ ] 只使用实测数字，不把本 roadmap 的目标阈值写成结果；
+- [x] 创建 `docs/evidence/metrics_traceability.md`，每个对外声明的指标标注对应报告、commit、数据 manifest 和复现命令；18 项指标逐条列出来源与 commit，5 个置信区间已重算并与文档比对一致，引用的哈希前缀全部在冻结证据中可定位；另设第 4 节列出 7 条**由真实数字拼装但错误**的表述及其正确写法；
+- [x] 只使用实测数字，不把本 roadmap 的目标阈值写成结果；溯源文档第 6 节规定：没有溯源行的数字不得对外使用，包括写进简历；
 - [ ] 整理项目讲述要点：为什么在应用层项目之外还要微调、工具契约怎么对齐、数据怎么防泄漏、为什么冻结基线、6GB 显存怎么控制、结果和边界。
 
 建议提交：`docs: publish reproducible model evidence`
