@@ -379,11 +379,15 @@ uv run python -m agent_toolcall_sft.training.train \
   --output-dir artifacts/checkpoints/qwen3-1.7b-toolcall-v1
 ```
 
-- [ ] 在启动前保存 Git commit、配置 hash、数据 manifest hash、依赖版本与 GPU 信息；
-- [ ] 保存 train/valid loss、学习率、总时间、峰值显存、Adapter 大小；
-- [ ] 验证最终 Adapter 可在独立进程加载；
-- [ ] 对 20 条固定 smoke cases 复现输出，其中至少 5 条只提供三个知识工具；
-- [ ] 不向 Git 提交 checkpoint 或 `.safetensors`。
+- [x] 在启动前保存 Git commit、配置 hash、数据 manifest hash、依赖版本与 GPU 信息；`provenance.json` 在模型加载前写盘，记录 commit `5174e62`、`worktree_clean: true`、config `699e5ee4…`、manifest `d87bc227…`（与两份 baseline 引用同一份）、train/eval 文件哈希、RTX 3060 6.00 GiB、Python 3.11.15 + torch 2.12.1+cu130 + transformers 5.14.1；
+- [x] 保存 train/valid loss、学习率、总时间、峰值显存、Adapter 大小；`train_loss = 0.1375`、`eval_loss = 0.1715`、lr `2e-4`、2 轮 250 步、**运行时 3148.86 s**、**峰值显存 4.105 GiB**、**Adapter 66.56 MiB**、666.5 tokens/s；
+- [x] 验证最终 Adapter 可在独立进程加载；两次独立进程各自加载 base + Adapter 并跑同一组 smoke case，**输出逐条完全一致**；
+- [x] 对 20 条固定 smoke cases 复现输出，其中至少 5 条只提供三个知识工具；实测 20 条覆盖 15 个场景族、**其中 10 条只提供三个知识工具**（下限 5）；该组上 `behavior_accuracy = 0.85`、`schema_valid_rate = 0.95`；
+- [x] 不向 Git 提交 checkpoint 或 `.safetensors`；`git check-ignore` 逐个确认 `adapter_model.safetensors`、`optimizer.pt` 与 `artifacts/` 下全部产物（共 1.3 GiB）均被忽略。
+
+> **2.4 遗留观察：保存的 Adapter 不是验证集最优点。** 验证 loss 为 step 50 → 0.1637、**step 100 → 0.1436（最低）**、step 150 → 0.1628、step 200 → 0.1712、step 250 → 0.1715；而训练 loss 同期降到 0.003–0.02。模型在约 0.8 个 epoch 后开始过拟合，**交付的 Adapter 取自最后一步（250），并非最优点**，且 `save_total_limit: 2` 已将 checkpoint-100 剪除，无法回取。
+>
+> 本阶段不据此改配置：`eval_loss` 不是本项目的验收指标，DoD 看的是 `behavior_accuracy`、Schema 合法率与危险写误调用率，强模板化数据上验证 loss 平台化而行为准确率继续上升是可能的。**处置留到阶段 C**：3.1 的配对评测出来后，若测试集表现明显受过拟合拖累，再按 3.2 的"唯一一次数据修订机会"处理，候选手段为 `load_best_model_at_end` 或缩短训练轮数，并重新记录 provenance。不得在看到测试集结果后反复调参重训。
 
 建议提交：`train: add reproducible QLoRA pipeline`
 
