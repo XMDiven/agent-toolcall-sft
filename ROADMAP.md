@@ -435,8 +435,14 @@ uv run python -m agent_toolcall_sft.training.train \
 - [x] 生成混淆矩阵 + **5–8 个代表性失败案例**（不做全量归因分类）；混淆矩阵见 `reports/eval_v1.md` 第 4 节，7 个代表案例见 `reports/error_analysis_v1.md` 第 4–6 节；
 - [x] 失败案例中至少包含 1 个 knowledge 域和 1 个安全类；knowledge 域为 `kb_lookup_000095`（单点事实误判为对比问题），安全类为 `strong_complaint_000132` 与 `strong_complaint_000018`；
 - [x] 将失败大致归因到 data、parser、model 三类；37 条中序列化 19（51%）、model 10（27%）、data 8（22%）、**parser 0**；
-- [ ] 只有一次基于错误分析的数据修订机会，且不得查看测试答案后新增近似训练样本；**建议用于训练目标的 JSON 分隔符**（理由与代价见 `reports/error_analysis_v1.md` 第 7 节），待项目所有者决定，尚未执行；
-- [ ] 如果重训，发布 v2 数据 manifest，并同时保留 v1 报告。
+- [x] 只有一次基于错误分析的数据修订机会，且不得查看测试答案后新增近似训练样本；**已用于训练目标的 JSON 分隔符**（`(",", ":")` → `(", ", ": ")`，提交 `ac6dd1b`）：数据未增删、标签未改动、超参未调整、测试集未触碰。**修订机会至此用尽**，结果见 `reports/eval_v2.md`；
+- [x] 如果重训，发布 v2 数据 manifest，并同时保留 v1 报告；数据 manifest 未变（`d87bc227…`，本次修订不触及数据），新训练 provenance 见 `artifacts/checkpoints/qwen3-1.7b-toolcall-v2/provenance.json`；`reports/eval_v1.md` 与 `reports/error_analysis_v1.md` 原样保留，数字未重算、未覆盖。
+
+> **3.2 修订结果（详见 `reports/eval_v2.md`）：** 19 条 JSON 非法全部消除，JSON 合法率 1.0000、Schema 合法率 0.9960，**四项 DoD 全部通过**；`behavior_accuracy` 0.3620 → **0.9540**（CI [+0.5460, +0.6360]）。
+>
+> **但修订并非纯格式改动，代价必须一并记录：** 执行前"语义判断不受影响"的预测被证伪——18 条语义类失败中 7 条改变了结果；决策边界右移，`tool_call` +24 条而 `clarify` −8 条；**危险写误调用由 v1 的 0/180 变为 2/180**（1.11%，仍在 DoD 的 2% 内，v1→v2 差值统计不显著），两条分别是臆造缺失参数与未确认即执行不可撤销写操作。
+>
+> 修订机会已用尽，该回退**不得再通过重训修复**。任何对外声明都必须同时包含这一权衡。
 
 ### 3.3 推理接口（里程碑）
 
