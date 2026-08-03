@@ -281,6 +281,7 @@ uv run python -m agent_toolcall_sft.evaluation.pair_report \
 | [`docs/demo/router_ab.md`](docs/demo/router_ab.md) | 与平台的 A/B 联动结果 |
 | [`docs/evidence/metrics_traceability.md`](docs/evidence/metrics_traceability.md) | 每个对外数字的来源与错误说法清单 |
 | [`docs/evidence/deployment_parity.md`](docs/evidence/deployment_parity.md) | Mac 部署与 CUDA 评测的一致性验证 |
+| [`docs/talking_points.md`](docs/talking_points.md) | 六个核心问题的结论、证据与预期追问 |
 | [`ROADMAP.md`](ROADMAP.md) | 全部门禁与逐项验收记录 |
 
 ---
