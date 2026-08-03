@@ -339,9 +339,9 @@ PY
   - gradient checkpointing、seed 42；
   - 只对 assistant/tool-call 输出计算 loss；
   - 定期 eval、保存 checkpoint，最多保留两个 checkpoint。
-- [ ] 测试模板中 assistant mask 确实覆盖工具调用 token，不把 system/user token 纳入训练 loss；
-- [ ] 验证每条样本的可用工具清单确实被渲染进 prompt，且随样本变化；
-- [ ] 打印总参数、可训练参数和比例，确认只训练 Adapter。
+- [x] 测试模板中 assistant mask 确实覆盖工具调用 token，不把 system/user token 纳入训练 loss；`training/formatting.py` 将 prompt 与答案分别编码、按 token 数切分，mask 按构造成立；`tests/test_formatting.py` 断言监督区是唯一后缀、前缀全为 `-100`，且**用真实 Qwen3 chat template 解码监督片段后能被 `parse_decision()` 解析回同一标准答案**；
+- [x] 验证每条样本的可用工具清单确实被渲染进 prompt，且随样本变化；训练复用评测同一个 `render_messages()`（`production_json_v2`），测试断言本条 `tools` 全部出现在 prompt 中且不同清单产生不同 prompt；
+- [x] 打印总参数、可训练参数和比例，确认只训练 Adapter；实测 `total=1,033,364,480`、`trainable=17,432,576`、`ratio=1.687%`、`adapter_only=true`（total 低于 1.7B 是因为 4-bit 权重按 uint8 打包存储，`numel()` 计的是打包后的元素数）。
 
 ### 2.2 64–128 条 GPU smoke test
 
