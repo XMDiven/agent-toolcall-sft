@@ -185,13 +185,13 @@ PY
 >
 > **2026-08-03 重建完成：** `data/manifests/split_v2.json` 已由 `agent_toolcall_sft.data.build` 重新生成（sha256 `d87bc227…`），泄漏门禁由 5 项补齐为 6 项，三个 split 的 jsonl 字节不变；`reports/data_audit_v2.md` 与 `reports/data_audit_v2_sheet.md` 已重新签发，60 条逐条 verdict 齐全；两套 baseline 已在 commit `3fbee66`、工作区 clean 下重跑并冻结，报告见 `reports/baseline_qwen3_1_7b_v2.md`（主，500 条）与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`（辅助，223 条）。撤回版本的内容保留在 `3f199a1` 的 Git 历史中，与新报告没有任何数字沿用。
 >
-> **1.1、1.2、1.3 的 checkbox 尚未逐条核对**——代码与数据证据已具备（`347 passed`、6 项泄漏门禁全过），但需要逐条比对证据后才能勾选。Phase B 在此之前不得开始。
+> **阶段 A 已完成。** 1.1–1.5 共 40 项 checkbox 全部勾选，每项附实测值。逐条核对于 2026-08-03 执行，`347 passed`、`ruff` 全绿、6 项泄漏门禁全过、两套 baseline 已冻结。Phase B 的门禁条件已满足。
 
 ### 1.1 工具和安全契约（1.5 小时封顶）
 
 **直接复用已有项目中验证过的 Pydantic 判别联合模式，不重新走完整 TDD。** 这块能力已有实现可参照，投入产出比低。
 
-- [ ] 定义以下七个固定工具及 JSON Schema：
+- [x] 定义以下七个固定工具及 JSON Schema：实测判别联合 7 个成员，必填参数逐一相符；`create_refund_request.confirmed` 为 `Literal[True]`，未确认在类型层面不可表达：
 
 | 工具 | 类型 | 必填参数 | 关键规则 |
 | --- | --- | --- | --- |
@@ -203,12 +203,12 @@ PY
 | `create_refund_request` | **写·危险** | `order_id`、`reason`、`confirmed` | `confirmed` 只能为 `true`，未确认在类型层面不可表达 |
 | `create_support_ticket` | 写·客服 | `summary` | 不能包含真实 PII |
 
-- [ ] 前三个工具的名称与必填参数名必须与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 一致，保证 dispatch-compatible；本项目额外拒绝空字符串和额外字段，校验有意更严格；
-- [ ] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
-- [ ] 使用 Pydantic 判别联合确保四种决策互斥，工具调用按 `name` 判别；
-- [ ] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验（`extra="forbid"`）；
-- [ ] 提供唯一解析入口 `parse_decision()`，数据生成、评测与推理接口三处共用；
-- [ ] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖。
+- [x] 前三个工具的名称与必填参数名必须与 `rag-agent-platform` 的 `agent/src/agent_app/tools/registry.py` 一致，保证 dispatch-compatible；本项目额外拒绝空字符串和额外字段，校验有意更严格；实测双方均为 `retrieval_tool(question)`、`summary_tool(text)`、`question_decompose_tool(question)`，回归测试 `test_retrieval_tool_matches_platform_signature`；
+- [x] 定义四种决策：`tool_call`、`clarify`、`direct_answer`、`handoff`；
+- [x] 使用 Pydantic 判别联合确保四种决策互斥，工具调用按 `name` 判别；`Decision` 按 `action` 判别、`ToolCall` 按 `name` 判别；
+- [x] 对未知工具、非法参数、缺失确认和额外字段使用 fail-closed 校验（`extra="forbid"`）；由 `StrictModel` 统一施加；
+- [x] 提供唯一解析入口 `parse_decision()`，数据生成、评测与推理接口三处共用；**当前仅评测侧（`evaluation/parsing.py`）调用原始字典解析**，数据生成直接构造 `contracts.Decision` 类型对象、由 Pydantic 同一套校验把关；推理接口属阶段 C 3.3，届时必须复用同一入口；
+- [x] 只保留一组冒烟测试覆盖上述四类非法输入，不追求分支全覆盖；`tests/test_contracts.py` 13 个用例，覆盖未知工具、未确认退款、非法 `order_id`、缺参与额外字段。
 
 > `handoff` 只作为决策存在，不再定义 `handoff_to_human` 工具。同一语义保留两种合法表示会让评测无法判定对错。
 
@@ -242,14 +242,14 @@ PY
 }
 ```
 
-- [ ] 实现记录 Schema 与 JSONL 读写；
-- [ ] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；
-- [ ] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；
-- [ ] 为每条记录保留模板版本、seed 和改写来源；
-- [ ] `expected_decision` 存放四种决策的完整标准答案，类型复用 `contracts.Decision`；`expected_action` 必须与之一致；
-- [ ] `expected_decision` 中的工具名必须出现在 `tools` 中，否则视为数据错误；
-- [ ] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；
-- [ ] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录。
+- [x] 实现记录 Schema 与 JSONL 读写；`DatasetRecord` + `read_records()` / `write_records()`；
+- [x] `domain` 字段取值 `knowledge` 或 `support`，用于阶段 C 的分层指标；实测全语料取值集合恰为这两个；
+- [x] `tools` 字段是本条样本**实际可用的工具清单**，不是全集；实测清单长度 2–5，全集为 7；
+- [x] 为每条记录保留模板版本、seed 和改写来源；实测 `provenance = {"generator": "rule", "template_version": "v2", "seed": 20260801}`；
+- [x] `expected_decision` 存放四种决策的完整标准答案，类型复用 `contracts.Decision`；`expected_action` 必须与之一致；实测 2,800 条中 0 条不一致；
+- [x] `expected_decision` 中的工具名必须出现在 `tools` 中，否则视为数据错误；实测 0 条违规；
+- [x] 测试字段缺失、未知 action、非法工具参数、`expected_tool_call` 不在 `tools` 内和真实 PII 模式；`tests/test_records.py` 18 个用例；
+- [x] 不记录真实姓名、电话、地址、邮箱、订单号或聊天记录；固定格式 PII 扫描全语料 0 命中，订单号均为合成 `ORD-\d{6}`；姓名与地址无可靠正则，由 1.4 的 60 条逐条审计覆盖，局限见 `reports/data_audit_v2.md` 第 8 节第 4 点。
 
 > Schema 层的 `contains_pii()` 只能拦住手机号、邮箱和身份证这类**有固定格式**的标识符。姓名和地址没有可靠正则，只能靠 1.3 的模板设计和 1.4 的人工审计保证，因此最后一条留到 1.4 完成后再勾。
 
@@ -257,8 +257,8 @@ PY
 
 ### 1.3 规则数据生成与切分（总量 2,800）
 
-- [ ] 建立人工可读的场景模板族，不从公开测试集复制样本；
-- [ ] 按以下目标分布生成 2,800 条：
+- [x] 建立人工可读的场景模板族，不从公开测试集复制样本；实测 19 个场景族、793 个不同 `template_key`，全部由本项目模板规则生成；
+- [x] 按以下目标分布生成 2,800 条：实测 knowledge `tool_call` 560、support `tool_call` 700、`clarify` 560、`direct_answer` 420、`handoff` 560（= 下表第 5 行 420 + 第 6 行 140；第 5 行中的"确认"类为已确认退款，属 support `tool_call`，计入 700）：
 
 | 类别 | 域 | 比例 | 数量 |
 | --- | --- | ---: | ---: |
@@ -269,16 +269,16 @@ PY
 | 确认、安全拒绝或转人工 | 混合 | 15% | 420 |
 | Prompt Injection、越权和未知业务 | 混合 | 5% | 140 |
 
-- [ ] 知识域必须覆盖三类模板族：单点事实问答（`retrieval_tool`）、对比或多部分问题（`question_decompose_tool`）、长文本压缩（`summary_tool`）；
-- [ ] **工具清单必须随机化**：每条样本的 `tools` 是全集的子集；其中**至少 25% 的样本只提供 `rag-agent-platform` 的三个知识工具**，用于验证子集路由能力；
-- [ ] 标签只由规则和 Schema 决定；
-- [ ] 使用固定 seed 生成内容，并将 manifest 写入 `data/manifests/`；
+- [x] 知识域必须覆盖三类模板族：单点事实问答（`retrieval_tool`）、对比或多部分问题（`question_decompose_tool`）、长文本压缩（`summary_tool`）；实测 `kb_lookup`、`kb_compare`、`text_summarize` 三族齐备；
+- [x] **工具清单必须随机化**：每条样本的 `tools` 是全集的子集；其中**至少 25% 的样本只提供 `rag-agent-platform` 的三个知识工具**，用于验证子集路由能力；实测 818/2,800 = **29.2%**；
+- [x] 标签只由规则和 Schema 决定；实测全语料 `provenance.generator` 取值集合为 `{"rule"}`；
+- [x] 使用固定 seed 生成内容，并将 manifest 写入 `data/manifests/`；`corpus_seed = split_seed = 20260801`，入口 `python -m agent_toolcall_sft.data.build`；
 - 可选技术（本轮未使用，不属于阶段门禁）：调用本机 `qwen3:8b` 改写用户表达；若后续启用，改写后必须重新运行标签与 Schema 校验；
-- [ ] 切分为 **2,000 train / 300 valid / 500 test**；**按 `template_key` 分组**，禁止逐条随机切分（改用 `template_key` 的理由见本节末尾说明）；
-- [ ] 测试集内 knowledge 与 support 两域样本量都不得低于 100 条；
-- [ ] 按 `template_key` 而非 `scenario_family` 分组切分，同一核心内容不得跨 split；
-- [ ] 执行内容 hash、规范化文本 hash、完整记录 fingerprint、`template_key` 交集、参数化句式交集和近重复检查；
-- [ ] 生成只读 split manifest，测试集生成后冻结版本。
+- [x] 切分为 **2,000 train / 300 valid / 500 test**；**按 `template_key` 分组**，禁止逐条随机切分（改用 `template_key` 的理由见本节末尾说明）；实测尺寸相符，manifest `split_unit = template_key`；
+- [x] 测试集内 knowledge 与 support 两域样本量都不得低于 100 条；实测 knowledge 100、support 400；
+- [x] 按 `template_key` 而非 `scenario_family` 分组切分，同一核心内容不得跨 split；实测三对 split 的 `shared_template_keys` 均为空；
+- [x] 执行内容 hash、规范化文本 hash、完整记录 fingerprint、`template_key` 交集、参数化句式交集和近重复检查；实测 manifest `leakage` 含 6 项、`leakage_clean = true`；
+- [x] 生成只读 split manifest，测试集生成后冻结版本。**冻结由测试而非文件权限实现**：`tests/test_build.py::test_repo_manifest_matches_current_code` 在仓库 manifest 与当前代码产物不一致时失败。之所以不用 `chmod 444`，是因为 Git 只跟踪可执行位，权限位克隆后即丢失，属于假冻结；测试则可复现、可进 CI。冻结的 manifest sha256 为 `d87bc227…`，并被两份 baseline 的 `metadata.json` 引用。
 
 **为什么工具清单必须随机化：** 微调模型学的不是"我会用这 7 个工具"，而是"给我一个清单，我从清单里选"。如果训练时永远给全集，模型在平台只给三个知识工具时的行为就没有任何训练信号，3.4 的 router 联动会直接失效。
 
