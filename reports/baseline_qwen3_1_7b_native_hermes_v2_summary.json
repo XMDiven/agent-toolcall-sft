@@ -1,0 +1,30 @@
+{
+  "auxiliary_metrics": {
+    "argument_exact_match": 0.5157,
+    "argument_match_ignoring_edge_punctuation": 0.7265,
+    "json_valid_rate": 0.9955,
+    "n": 223,
+    "off_menu_call_rate": 0.0,
+    "schema_valid_rate": 0.9955,
+    "tool_name_accuracy": 0.9238
+  },
+  "evaluated_records": 223,
+  "latency": {
+    "mean_ms": 1406.41,
+    "p50_ms": 1242.86,
+    "p95_ms": 2039.33
+  },
+  "prompt_version": "native_hermes_v1",
+  "protocol": "native_hermes_auxiliary",
+  "schema_errors": {
+    "no JSON object": 1
+  },
+  "selected_records": 223,
+  "selection_rule": "expected_action == \"tool_call\"",
+  "source_records": 500,
+  "split": "data/processed/test.jsonl",
+  "tokens": {
+    "completion_mean": 35.7,
+    "prompt_mean": 478.3
+  }
+}

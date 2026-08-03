@@ -183,9 +183,9 @@ PY
 >
 > **2026-08-01 那一轮产出的 v2 证据已撤回**，包括 `reports/baseline_qwen3_1_7b_v2.md`、`reports/baseline_qwen3_1_7b_v2_summary.json`、`reports/data_audit_v2.md` 和 `reports/data_audit_v2_sheet.md`。这些文件保留为历史记录，其中"已冻结""取代 v1"的表述不再成立，不得作为门禁依据引用。
 >
-> **2026-08-03 重建进度：** `data/manifests/split_v2.json` 已由 `agent_toolcall_sft.data.build` 重新生成（sha256 `d87bc227…`），泄漏门禁由 5 项补齐为 6 项，三个 split 的 jsonl 字节不变；`reports/data_audit_v2.md` 与 `reports/data_audit_v2_sheet.md` 已重新签发，60 条逐条 verdict 齐全。**1.5 的两套 baseline 仍未重跑**——旧预测使用的是已被替换的 native tool 协议。
+> **2026-08-03 重建完成：** `data/manifests/split_v2.json` 已由 `agent_toolcall_sft.data.build` 重新生成（sha256 `d87bc227…`），泄漏门禁由 5 项补齐为 6 项，三个 split 的 jsonl 字节不变；`reports/data_audit_v2.md` 与 `reports/data_audit_v2_sheet.md` 已重新签发，60 条逐条 verdict 齐全；两套 baseline 已在 commit `3fbee66`、工作区 clean 下重跑并冻结，报告见 `reports/baseline_qwen3_1_7b_v2.md`（主，500 条）与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`（辅助，223 条）。撤回版本的内容保留在 `3f199a1` 的 Git 历史中，与新报告没有任何数字沿用。
 >
-> 两套基线产生新鲜证据前，1.5 保持未完成，Phase B 不得开始。
+> **1.1、1.2、1.3 的 checkbox 尚未逐条核对**——代码与数据证据已具备（`347 passed`、6 项泄漏门禁全过），但需要逐条比对证据后才能勾选。Phase B 在此之前不得开始。
 
 ### 1.1 工具和安全契约（1.5 小时封顶）
 
@@ -310,13 +310,13 @@ PY
 
 **这是整个项目的价值支点。没有冻结基线，后面所有数字都不可信。**
 
-- [ ] 固定 **production JSON 主协议**：把本条可用工具 Schema 和四种决策写入提示词，要求输出单个四决策 JSON；该协议覆盖全部 500 条 v2 测试记录，也是后续 base 与 Adapter 配对比较的唯一主 baseline；
-- [ ] 单独固定 **native Hermes 辅助协议**：通过 `apply_chat_template(tools=...)` 渲染 `<tools>` / `<tool_call>`，仅评测 gold `expected_action == "tool_call"` 子集；它只用于衡量基座模型原生工具路由能力，不与主 `behavior_accuracy` 混合；
-- [ ] 两套协议分别固定 greedy（或 temperature 0）、最大输出 token、prompt version 和 decoding version；
-- [ ] 在训练前用 `Qwen/Qwen3-1.7B` 跑完整 500 条 production JSON 主测试集，并单独跑 gold `tool_call` 的 native Hermes 辅助子集；
-- [ ] 两套 baseline 分别保存逐样本预测、解析错误、延迟、token 和显存，并写入互不覆盖的只读版本目录；
-- [ ] production 报告同时给出 knowledge、support 与 overall 三组 `action_accuracy`、`behavior_accuracy` 及其他主指标；native Hermes 报告明确子集选择规则，只报告工具名、参数、Schema、清单外调用和性能等辅助指标；
-- [ ] 生成 `reports/baseline_qwen3_1_7b_v2.md` 与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`，记录模型权重、完整 manifest、测试 split、提示词、解码和环境指纹；v1 文件的指标不得重算，其限制记录在独立 errata 中（唯一一次冻结后改动见本阶段"证据状态"说明）。
+- [x] 固定 **production JSON 主协议**：把本条可用工具 Schema 和四种决策写入提示词，要求输出单个四决策 JSON；该协议覆盖全部 500 条 v2 测试记录，也是后续 base 与 Adapter 配对比较的唯一主 baseline；`prompt_version = production_json_v2`，实评 500/500；
+- [x] 单独固定 **native Hermes 辅助协议**：通过 `apply_chat_template(tools=...)` 渲染 `<tools>` / `<tool_call>`，仅评测 gold `expected_action == "tool_call"` 子集；它只用于衡量基座模型原生工具路由能力，不与主 `behavior_accuracy` 混合；`prompt_version = native_hermes_v1`，选中并实评 223/500；
+- [x] 两套协议分别固定 greedy（或 temperature 0）、最大输出 token、prompt version 和 decoding version；两套均为 `decoding_version = v1`：`do_sample=false`、`num_beams=1`、`max_new_tokens=256`、`enable_thinking=false`；
+- [x] 在训练前用 `Qwen/Qwen3-1.7B` 跑完整 500 条 production JSON 主测试集，并单独跑 gold `tool_call` 的 native Hermes 辅助子集；两次均在 commit `3fbee66`、工作区 clean 下执行；
+- [x] 两套 baseline 分别保存逐样本预测、解析错误、延迟、token 和显存，并写入互不覆盖的只读版本目录；`artifacts/baseline_production_json_v2/` 与 `artifacts/baseline_native_hermes_v2/`，均为 `-r--r--r--`，峰值显存 3.322 / 3.321 GiB；
+- [x] production 报告同时给出 knowledge、support 与 overall 三组 `action_accuracy`、`behavior_accuracy` 及其他主指标；native Hermes 报告明确子集选择规则，只报告工具名、参数、Schema、清单外调用和性能等辅助指标；
+- [x] 生成 `reports/baseline_qwen3_1_7b_v2.md` 与 `reports/baseline_qwen3_1_7b_native_hermes_v2.md`，记录模型权重、完整 manifest、测试 split、提示词、解码和环境指纹；v1 文件的指标不得重算，其限制记录在独立 errata 中（唯一一次冻结后改动见本阶段"证据状态"说明）。
 
 建议提交：`eval: freeze Qwen3 1.7B baseline`
 
