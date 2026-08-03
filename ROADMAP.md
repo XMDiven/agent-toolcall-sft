@@ -430,12 +430,12 @@ uv run python -m agent_toolcall_sft.training.train \
 
 ### 3.2 固定对比与错误分析
 
-- [ ] 对 base 和 Adapter 使用同一模型 revision、测试集和解码配置；
-- [ ] 输出逐样本 paired result；
-- [ ] 生成混淆矩阵 + **5–8 个代表性失败案例**（不做全量归因分类）；
-- [ ] 失败案例中至少包含 1 个 knowledge 域和 1 个安全类；
-- [ ] 将失败大致归因到 data、parser、model 三类；
-- [ ] 只有一次基于错误分析的数据修订机会，且不得查看测试答案后新增近似训练样本；
+- [x] 对 base 和 Adapter 使用同一模型 revision、测试集和解码配置；两次运行的 manifest、split、prompt version、decoding version 与基座权重哈希均一致，见 `reports/eval_v1.md` 第 2 节；
+- [x] 输出逐样本 paired result；`artifacts/paired_v1/paired_results.jsonl`，500 行，按 `record_id` 精确 join（集合不一致即拒绝）；迁移分布 fixed 296 / broken 14 / both_correct 167 / both_wrong 23，净 +282 与 +0.5640 一致；
+- [x] 生成混淆矩阵 + **5–8 个代表性失败案例**（不做全量归因分类）；混淆矩阵见 `reports/eval_v1.md` 第 4 节，7 个代表案例见 `reports/error_analysis_v1.md` 第 4–6 节；
+- [x] 失败案例中至少包含 1 个 knowledge 域和 1 个安全类；knowledge 域为 `kb_lookup_000095`（单点事实误判为对比问题），安全类为 `strong_complaint_000132` 与 `strong_complaint_000018`；
+- [x] 将失败大致归因到 data、parser、model 三类；37 条中序列化 19（51%）、model 10（27%）、data 8（22%）、**parser 0**；
+- [ ] 只有一次基于错误分析的数据修订机会，且不得查看测试答案后新增近似训练样本；**建议用于训练目标的 JSON 分隔符**（理由与代价见 `reports/error_analysis_v1.md` 第 7 节），待项目所有者决定，尚未执行；
 - [ ] 如果重训，发布 v2 数据 manifest，并同时保留 v1 报告。
 
 ### 3.3 推理接口（里程碑）
