@@ -360,10 +360,14 @@ uv run python -m agent_toolcall_sft.training.train \
 
 ### 2.3 小样本过拟合测试
 
-- [ ] 使用 64 条覆盖四种决策和两个域的平衡样本；
-- [ ] 训练至 loss 明显下降；
-- [ ] 验证训练样本行为准确率显著上升；
-- [ ] 如果无法过拟合，优先检查模板、label masking、tokenizer 和 Adapter 注入，不开始全量训练。
+- [x] 使用 64 条覆盖四种决策和两个域的平衡样本；**4 决策 × 2 域的 8 个格子里只有 5 个真实存在**——knowledge 域三个族（`kb_lookup`、`kb_compare`、`text_summarize`）按设计全部是 `tool_call`，不存在知识域的 clarify/handoff。样本按实际存在的 5 个分层平均分配为 13/13/13/13/12，`select_balanced()` 确定性选取，见 `tests/test_overfit.py`；
+- [x] 训练至 loss 明显下降；48 步（12 轮 × 4 步），`train_loss = 0.3872`、**`eval_loss = 0.00067`**（同一批样本，teacher forcing），峰值显存 4.066 GiB；
+- [x] 验证训练样本行为准确率显著上升；用**与 baseline 完全相同的 `score_record()` / `aggregate_by_domain()`** 打分，`behavior_accuracy` **overall 0.2031 → 0.9219**、knowledge 0.0000 → 0.7692、support 0.2549 → 0.9608；
+- [x] 如果无法过拟合，优先检查模板、label masking、tokenizer 和 Adapter 注入，不开始全量训练。**本轮成功过拟合，未触发该排查**；仍对残留的 5/64 失败做了归因，全部为同一缺陷：模型把 `":"`（单 token）写成 `:"`（另一单 token），JSON 因此非法。两串输出 token 数相同（29），仅差这一个位置。**该现象直接关系 DoD 的 ≥99% Schema 合法率**，须在 2.4 全量训练后复查，见下方说明。
+
+> **2.3 遗留观察：`":"` 与 `:"` 的 token 混淆。** 过拟合后仍错的 5 条，全部是把键值分隔符写成了 `:"`，导致 JSON 非法。这两个字符串在 Qwen3 词表里各是一个独立 token，模型只要选错一次，整条输出就不可解析。
+>
+> 当前证据不足以判断这是数据量问题还是序列化选择问题，**因此本阶段不做任何改动**。2.4 全量训练后必须复查 `schema_valid_rate`：若仍低于 99%，候选处置依次为——(1) 检查是否随数据量增加而消失；(2) 评估把训练目标的 `separators` 从 `(",", ":")` 改为带空格形式，使其避开这对易混 token（评测解析器对空白不敏感，不影响与 baseline 的可比性）。**不得采用受限解码来掩盖**，那会改变协议、使配对比较失效。
 
 ### 2.4 全量训练
 

@@ -1,0 +1,48 @@
+# 小样本过拟合探针配置（ROADMAP 2.3）
+#
+# 与 configs/qlora.yaml 的唯一差别是训练轮数：64 条样本、有效批次 16，
+# 每轮只有 4 步，需要更多轮才能把训练集拟合下来。
+#
+# 这个配置只用于诊断"这套管线能不能学会东西"，不用于产出正式 Adapter。
+# 全量训练必须使用 configs/qlora.yaml。
+
+base_model: Qwen/Qwen3-1.7B
+
+quantization:
+  load_in_4bit: true
+  quant_type: nf4
+  double_quant: true
+  compute_dtype: float16
+
+lora:
+  r: 16
+  alpha: 32
+  dropout: 0.05
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    - gate_proj
+    - up_proj
+    - down_proj
+
+data:
+  train_file: artifacts/overfit/slice.jsonl
+  eval_file: artifacts/overfit/slice.jsonl
+  max_seq_length: 1024
+  loss_on: assistant
+
+training:
+  per_device_train_batch_size: 1
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 16
+  # 64 条 / 有效批次 16 = 每轮 4 步；12 轮共 48 步。
+  num_train_epochs: 12
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  gradient_checkpointing: true
+  seed: 42
+  eval_steps: 12
+  save_steps: 48
+  save_total_limit: 2
