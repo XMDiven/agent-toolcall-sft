@@ -299,7 +299,7 @@ PY
 - [x] 审计工具选择、参数、确认语义、自然度、PII 和安全标签；
 - [x] 特别检查：知识域样本的工具选择是否与 `rag-agent-platform` 的实际行为一致（对比类问题才用 `question_decompose_tool`）；见报告 3.3；
 - [x] 将问题分为 label error、template error、rewrite drift 和 policy ambiguity；实测 label 0、drift 0、template 4、policy 7；
-- [ ] 修复规则后重新生成全部 split，不直接手改测试答案；**本轮未触发**——未发现 label error，4 处 template 瑕疵为表层措辞，经权衡记录而不修复，理由与推翻条件见 `reports/data_audit_v2.md` 第 7 节，待项目所有者确认；
+- [x] 修复规则后重新生成全部 split，不直接手改测试答案；**本轮未触发重新生成，且未手改任何测试答案**——未发现 label error，4 处 template 瑕疵为表层措辞，经项目所有者于 2026-08-03 确认后记录而不修复，理由与推翻条件见 `reports/data_audit_v2.md` 第 7 节；
 - [x] 在 `reports/data_audit_v2.md` 与对应 sheet 中记录检查项、逐条 verdict、发现、修复和剩余边界；v1 审计证据保持不可变，其取代状态记录在本 ROADMAP 中。
 
 > 60 条只减少抽样量，不放松分层结构和修复流程——审计的价值在于"发现了什么并改了规则"，不在于条数。
