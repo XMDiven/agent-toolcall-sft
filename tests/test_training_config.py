@@ -53,6 +53,13 @@ def test_effective_batch_size_matches_the_6gb_budget(config):
     assert config.effective_batch_size == 16
 
 
+def test_eval_batch_never_exceeds_the_train_batch(config):
+    """Evaluation materialises seq x 151936 logits; the HF default of 8 OOMs on 6GB."""
+    t = config.training
+    assert t.per_device_eval_batch_size == 1
+    assert t.per_device_eval_batch_size <= t.per_device_train_batch_size
+
+
 def test_unknown_key_is_rejected(tmp_path):
     """A typo must fail loudly instead of silently falling back to a default."""
     bad = tmp_path / "bad.yaml"

@@ -36,6 +36,8 @@ data:
 
 training:
   per_device_train_batch_size: 1
+  # 不能省略：库默认 8，评测时要为 8 条序列一次性展开 logits，6GB 必爆。
+  per_device_eval_batch_size: 1
   gradient_accumulation_steps: 16
   num_train_epochs: 2
   learning_rate: 2.0e-4

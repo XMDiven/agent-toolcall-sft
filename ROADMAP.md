@@ -353,10 +353,10 @@ uv run python -m agent_toolcall_sft.training.train \
   --output-dir artifacts/checkpoints/smoke
 ```
 
-- [ ] 无 CUDA OOM、NaN loss 或 label mask 空样本；
-- [ ] 记录峰值显存、tokens/s 和运行时；
-- [ ] 验证 checkpoint 能恢复至少一个训练 step；
-- [ ] 退出后验证 GPU 显存被释放。
+- [x] 无 CUDA OOM、NaN loss 或 label mask 空样本；16 步全部完成，loss 由 3.9216 降至 0.0370、梯度范数 13.7 → 0.28，全程有限；空监督样本由 `build_examples()` 拒绝。**首次运行确实 OOM**：`per_device_eval_batch_size` 未指定时库默认为 8，评测需一次展开 8 × ~718 × 151936 的 fp32 logits（3.25 GiB），已在配置中显式固定为 1 并加回归测试；
+- [x] 记录峰值显存、tokens/s 和运行时；**峰值显存 4.07 GiB / 6.00 GiB**、**tokens/s 576.1**、**运行时 245.93 s**（均取自未恢复的完整 smoke 运行；恢复运行不报 tokens/s，因其跳过的步数会使吞吐虚高）；
+- [x] 验证 checkpoint 能恢复至少一个训练 step；从 `checkpoint-16` 恢复后跑至第 32 步，恢复运行中第 1–16 步的 loss 与原运行**逐位相同**（如 step 1 = 3.9216105937957764、step 16 = 0.03697174787521362），第 17–32 步为新产生，运行时 187.85 s 与 16 步的量相符；
+- [x] 退出后验证 GPU 显存被释放；`nvidia-smi` 显示 0 MiB。
 
 ### 2.3 小样本过拟合测试
 

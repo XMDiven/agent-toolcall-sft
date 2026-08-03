@@ -45,6 +45,10 @@ class DataConfig(StrictModel):
 
 class TrainingConfig(StrictModel):
     per_device_train_batch_size: int = Field(gt=0)
+    # Evaluation materialises seq_len x 151936 logits in fp32. The library
+    # default of 8 asks for 3.25 GiB on this data and OOMs a 6GB card, so the
+    # eval batch is stated rather than inherited.
+    per_device_eval_batch_size: int = Field(gt=0)
     gradient_accumulation_steps: int = Field(gt=0)
     num_train_epochs: int = Field(gt=0)
     learning_rate: float = Field(gt=0.0)
